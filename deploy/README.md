@@ -20,6 +20,22 @@ docker network connect --alias openwini proxy-network "$(docker compose -f docke
 
 只需 Docker 和 Docker Compose。Compose 使用官方镜像编译源码，两个构建服务完成后退出，仅 Rust 服务持续运行，同时提供页面和 API。数据库使用外部 PostgreSQL。
 
+## 仅通过 127.0.0.1:10080 访问
+
+使用 GHCR 镜像时，在本目录执行：
+
+```bash
+docker compose -f docker-compose.ghcr.yml -f docker-compose.local.yml up -d --remove-orphans
+```
+
+使用源码编译时执行：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --remove-orphans
+```
+
+然后通过 `http://127.0.0.1:10080` 访问，或将宿主机反向代理指向该地址。此方式无需手动连接外部 Docker 网络。后续执行更新、状态、日志等命令时，保持相同的两个 `-f` 参数。
+
 ## 启动
 
 在本目录执行：
