@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 WORKDIR /app
 COPY --from=builder /build/target/release/wini-api /usr/local/bin/wini-api
 COPY --from=web /build/apps/web/dist /web
+COPY LICENSE /licenses/LICENSE
 ENV APP_ENV=production \
     BIND_ADDR=0.0.0.0:10180 \
     WEB_DIST_DIR=/web \
