@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.22.1
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+
+  api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.99.1
+          components: rustfmt, clippy
+      - run: cargo fmt --all -- --check
+      - run: cargo check --workspace --locked
+      - run: cargo clippy --workspace --all-targets --all-features --locked
+      - run: cargo test --workspace --locked
+
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: [web, api]
+    permissions:
+      contents: read
+      packages: write
+    env:
+      DB_HOST: db.example.invalid
+      DB_USER: wini
+      DB_PASSWORD: ci-placeholder
+      DB_NAME: wini_plugins
+      APP_ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      GITHUB_CLIENT_ID: ci-placeholder
+      GITHUB_CLIENT_SECRET: ci-placeholder
+      ADMIN_GITHUB_LOGINS: ci-admin
+      APP_BASE_URL: https://plugins.example.invalid
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Compose configuration
+        run: |
+          docker compose config --quiet
+          docker compose -f deploy/docker-compose.yml --env-file deploy/.env.example config --quiet
+          docker compose -f deploy/docker-compose.ghcr.yml --env-file deploy/.env.example config --quiet
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/cloudwhile/openwini
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=ref,event=tag
+            type=ref,event=pr
+            type=sha,format=long
+      - name: Build application image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: crates/api/Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Check application runtime
+        run: |
+          docker run --rm --entrypoint sh '${{ steps.build.outputs.imageid }}' -ec '
+            test "$(id -u)" = 10001
+            command -v wini-api
+            test -s /web/index.html
+            test -d /web/assets
+            command -v curl
+            ldd /usr/local/bin/wini-api > /tmp/wini-api.ldd
+            cat /tmp/wini-api.ldd
+            ! grep -q "not found" /tmp/wini-api.ldd
+          '
+      - name: Push application image to GHCR
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          while IFS= read -r tag; do
+            docker push "$tag"
+          done <<< "$IMAGE_TAGS"

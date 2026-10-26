@@ -1,33 +1,62 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-lerna-debug.log*
-
-node_modules
-dist
-dist-ssr
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
 *.local
+.pgpass
+.ssh/
+secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+docker-compose.override.yml
+docker-compose.override.yaml
+compose.override.yml
+compose.override.yaml
 
-# env files (can opt-in for committing if needed)
-.env*
+# Dependencies, compilation output, and caches
+node_modules/
+target/
+dist/
+dist-ssr/
+.turbo/
+.cache/
+.npm/
+.pnpm-store/
+.yarn/cache/
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+coverage/
+.nyc_output/
 
-# turbo
-.turbo
+# Logs and temporary deployment artifacts
+logs/
+*.log
+tmp/
+temp/
+.tmp/
+artifacts/
+backups/
+*.dump
+*.sqlite
+*.sqlite3
+*.db
+*.tar
+*.tar.gz
+*.tgz
 
-# Editor directories and files
+# Editors and operating systems
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
+Thumbs.db
+Desktop.ini
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
-
-# typescript
-*.tsbuildinfo
+*~

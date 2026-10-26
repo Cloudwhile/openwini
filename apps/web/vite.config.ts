@@ -11,4 +11,15 @@ export default defineConfig({
       "@": resolve(import.meta.dirname, "./src"),
     },
   },
+  server: {
+    port: 3000,
+    strictPort: true,
+    proxy: {
+      // 开发环境把 /api 代理到后端；生产由 Rust 服务统一提供页面和 API。
+      "/api": {
+        target: process.env.API_PROXY_TARGET || "http://localhost:8080",
+        changeOrigin: true,
+      },
+    },
+  },
 })

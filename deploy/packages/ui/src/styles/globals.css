@@ -1,0 +1,226 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+@custom-variant dark (&:is(.dark *));
+@source "../../../apps/**/*.{ts,tsx}";
+@source "../../../components/**/*.{ts,tsx}";
+@source "../**/*.{ts,tsx}";
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    /* 语义状态色：success 与 warning 全站统一，不再散落零散的绿/黄工具类 */
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
+    --color-warning: var(--warning);
+    --color-warning-foreground: var(--warning-foreground);
+    /* 品牌强调色的弱化背景（链接、激活态底色） */
+    --color-brand-muted: var(--brand-muted);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.2);
+    --radius-2xl: calc(var(--radius) * 1.6);
+    --radius-3xl: calc(var(--radius) * 2);
+    --radius-4xl: calc(var(--radius) * 2.4);
+    --font-sans: 'Geist Variable', -apple-system, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
+    --font-mono: ui-monospace, 'Cascadia Code', 'SF Mono', Consolas, monospace;
+}
+
+/*
+ * WindowsIsland 设计 Token
+ * 暗色三层面：page(0) < surface(卡片) < elevated(浮层)
+ * 品牌强调：可控蓝（--accent），仅用于主操作/链接/激活态，不做大面积铺色
+ */
+:root {
+    color-scheme: light;
+    --background: oklch(0.975 0.002 250);
+    --foreground: oklch(0.2 0.015 250);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.2 0.015 250);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.2 0.015 250);
+    --primary: oklch(0.55 0.17 252);
+    --primary-foreground: oklch(0.985 0.002 250);
+    --secondary: oklch(0.955 0.004 250);
+    --secondary-foreground: oklch(0.3 0.02 250);
+    --muted: oklch(0.955 0.004 250);
+    --muted-foreground: oklch(0.5 0.02 250);
+    --accent: oklch(0.95 0.02 250);
+    --accent-foreground: oklch(0.35 0.1 252);
+    --destructive: oklch(0.577 0.215 27);
+    --success: oklch(0.6 0.15 155);
+    --success-foreground: oklch(0.985 0 0);
+    --warning: oklch(0.72 0.15 75);
+    --warning-foreground: oklch(0.28 0.06 75);
+    --brand-muted: oklch(0.55 0.17 252 / 10%);
+    --border: oklch(0.9 0.005 250);
+    --input: oklch(0.89 0.006 250);
+    --ring: oklch(0.62 0.15 252);
+    --chart-1: oklch(0.62 0.15 252);
+    --chart-2: oklch(0.6 0.15 155);
+    --chart-3: oklch(0.72 0.15 75);
+    --chart-4: oklch(0.577 0.215 27);
+    --chart-5: oklch(0.55 0.12 300);
+    --radius: 0.625rem;
+    --sidebar: oklch(0.985 0.002 250);
+    --sidebar-foreground: oklch(0.35 0.02 250);
+    --sidebar-primary: oklch(0.55 0.17 252);
+    --sidebar-primary-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.94 0.01 250);
+    --sidebar-accent-foreground: oklch(0.25 0.02 250);
+    --sidebar-border: oklch(0.91 0.005 250);
+    --sidebar-ring: oklch(0.62 0.15 252);
+}
+
+/*
+ * 暗色主题色板（WindowsIsland 指定）
+ * 页面 #0B0D10 / 卡片 #15181D / 悬浮 #1D2229 / 分割线 #303741
+ * 主文字 #F3F5F7 / 次要文字 #B0B8C4 / 品牌强调 #64A8FF / 危险 #F87171
+ * 层级关系：page < sidebar < card < popover，hover 底色在 popover 之上再亮一档
+ */
+.dark {
+    color-scheme: dark;
+    --background: #0b0d10;
+    --foreground: #f3f5f7;
+    --card: #15181d;
+    --card-foreground: #f3f5f7;
+    --popover: #1d2229;
+    --popover-foreground: #f3f5f7;
+    --primary: #64a8ff;
+    --primary-foreground: #0b0d10;
+    --secondary: #1d2229;
+    --secondary-foreground: #f3f5f7;
+    --muted: #1d2229;
+    --muted-foreground: #b0b8c4;
+    --accent: #232932;
+    --accent-foreground: #f3f5f7;
+    --destructive: #f87171;
+    --success: oklch(0.7 0.16 156);
+    --success-foreground: oklch(0.17 0.04 156);
+    --warning: oklch(0.78 0.14 80);
+    --warning-foreground: oklch(0.27 0.06 80);
+    --brand-muted: #64a8ff24;
+    --border: #303741;
+    --input: #303741;
+    --ring: #64a8ff;
+    --chart-1: #64a8ff;
+    --chart-2: oklch(0.7 0.16 156);
+    --chart-3: oklch(0.78 0.14 80);
+    --chart-4: #f87171;
+    --chart-5: oklch(0.65 0.14 300);
+    --sidebar: #111419;
+    --sidebar-foreground: #b0b8c4;
+    --sidebar-primary: #64a8ff;
+    --sidebar-primary-foreground: #0b0d10;
+    --sidebar-accent: #1d2229;
+    --sidebar-accent-foreground: #f3f5f7;
+    --sidebar-border: #303741;
+    --sidebar-ring: #64a8ff;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv11", "ss01";
+  }
+  /* 统一键盘焦点可见性（无障碍基线） */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+/* —— 骨架屏 + 扫光动画 —— */
+.skeleton {
+    position: relative;
+    overflow: hidden;
+    background: var(--muted);
+    border-radius: calc(var(--radius) - 4px);
+}
+
+.skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+        90deg,
+        transparent,
+        oklch(0 0 0 / 0.05) 40%,
+        oklch(0 0 0 / 0.10) 50%,
+        oklch(0 0 0 / 0.05) 60%,
+        transparent
+    );
+    animation: skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+.dark .skeleton::after {
+    background: linear-gradient(
+        90deg,
+        transparent,
+        oklch(1 0 0 / 0.04) 40%,
+        oklch(1 0 0 / 0.09) 50%,
+        oklch(1 0 0 / 0.04) 60%,
+        transparent
+    );
+}
+
+@keyframes skeleton-shimmer {
+    to {
+        transform: translateX(100%);
+    }
+}
+
+/* —— 全局动效偏好尊重 —— */
+@media (prefers-reduced-motion: reduce) {
+    .skeleton::after {
+        animation: none;
+    }
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
