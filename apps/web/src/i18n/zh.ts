@@ -65,7 +65,7 @@ export const zh = {
   },
   permission: {
     risk: { low: "低风险", medium: "中风险", high: "高风险" },
-    highRiskNote: "高危权限：插件运行时无法强制隔离，请在使用前谨慎核对",
+    highRiskNote: "高风险权限：启用前请核对插件来源、用途与联网须知",
     unknown: "未知权限",
   },
   catalog: {
@@ -93,7 +93,7 @@ export const zh = {
     homepage: "主页",
     docs: "文档",
     permissions: "权限清单",
-    permissionsDesc: "权限在安装时由客户端逐项确认",
+    permissionsDesc: "启用前请核对权限，并确认已提供的条款与联网须知",
     description: "插件介绍",
     officialBadge: "直发插件",
     stoppedNotice: "该插件已从目录停止提供：",
@@ -498,10 +498,10 @@ export const zh = {
         logEmpty: "还没有发送记录",
         configErrorTag: "配置错误",
       },
-      /** 权限标签（宿主权限表）管理 */
+      /** 平台权限标签管理 */
       perms: {
         title: "权限标签",
-        desc: "宿主权限表：插件清单可声明的权限及其风险分级；新增后插件即可在清单中声明，删除被使用的标签会被拒绝",
+        desc: "维护权限标签及风险说明；请按插件实际用途登记",
         add: "新增标签",
         edit: "编辑",
         name: "权限名",
@@ -547,7 +547,7 @@ export const zh = {
    */
   apiErrors: {
     manifest_missing: (p: Record<string, string>) =>
-      `仓库 ${p.owner ?? ""}/${p.repo ?? ""} 的默认分支（${p.branch ?? ""}）根目录没有 manifest.json。请在仓库根目录创建 manifest.json（文件名区分大小写，需包含 id/name/version/description/permissions/minHostVersion/contractVersion 字段），推送后再重新校验`,
+      `仓库 ${p.owner ?? ""}/${p.repo ?? ""} 的默认分支（${p.branch ?? ""}）根目录没有 manifest.json。请在仓库根目录添加插件清单 manifest.json，推送后重新校验`,
     manifest_empty: "manifest.json 内容为空（文件超过 1MiB 或不可读）",
     manifest_too_large: "manifest.json 超过 256 KiB 上限",
     manifest_not_json: "manifest.json 不是合法 JSON",

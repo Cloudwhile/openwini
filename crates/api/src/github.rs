@@ -397,8 +397,7 @@ fn map_manifest_error(e: anyhow::Error, owner: &str, repo: &str, branch: &str) -
     if e.to_string().contains("NOT_FOUND_FILE") {
         let message = format!(
             "仓库 {owner}/{repo} 的默认分支（{branch}）根目录没有 manifest.json。\
-             请在仓库根目录创建 manifest.json（文件名区分大小写，需包含 id/name/version/description/\
-             permissions/minHostVersion/contractVersion 字段），推送后再重新校验"
+             请在仓库根目录添加插件清单 manifest.json，推送后重新校验"
         );
         coded(
             "manifest_missing",

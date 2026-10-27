@@ -11,6 +11,7 @@ export const en: Lang = {
       catalog: "Plugin Catalog",
       myPlugins: "My Plugins",
       login: "Sign in with GitHub",
+      loginShort: "Sign in",
       logout: "Sign out",
       adminReview: "Review Queue",
       adminPlugins: "Plugin Management",
@@ -66,7 +67,7 @@ export const en: Lang = {
   },
   permission: {
     risk: { low: "Low risk", medium: "Medium risk", high: "High risk" },
-    highRiskNote: "High-risk permission: plugins cannot be fully isolated at runtime; review it carefully before use",
+    highRiskNote: "High-risk permission: check the plugin source, purpose, and network notice before enabling",
     unknown: "Unknown permission",
   },
   catalog: {
@@ -94,7 +95,7 @@ export const en: Lang = {
     homepage: "Homepage",
     docs: "Documentation",
     permissions: "Permissions",
-    permissionsDesc: "Each permission is confirmed by the client at install time",
+    permissionsDesc: "Review permissions and accept any supplied terms and network notice before enabling",
     description: "About this plugin",
     officialBadge: "Direct-published plugin",
     stoppedNotice: "This plugin has been removed from the catalog: ",
@@ -505,10 +506,10 @@ export const en: Lang = {
         logEmpty: "No deliveries yet",
         configErrorTag: "Config error",
       },
-      /** Permission tags (host permission table) management */
+      /** Platform permission tag management */
       perms: {
         title: "Permission Tags",
-        desc: "Host permission table: permissions plugins may declare in their manifests, with risk levels. Tags in use cannot be deleted.",
+        desc: "Manage permission tags and risk descriptions to match each plugin's actual purpose",
         add: "Add tag",
         edit: "Edit",
         name: "Permission name",
@@ -554,7 +555,7 @@ export const en: Lang = {
    */
   apiErrors: {
     manifest_missing: (p: Record<string, string>) =>
-      `The default branch (${p.branch ?? ""}) of ${p.owner ?? ""}/${p.repo ?? ""} has no manifest.json at the repository root. Create manifest.json at the repository root (the file name is case-sensitive and must contain id/name/version/description/permissions/minHostVersion/contractVersion), push, then validate again.`,
+      `The default branch (${p.branch ?? ""}) of ${p.owner ?? ""}/${p.repo ?? ""} has no manifest.json at the repository root. Add the plugin manifest.json there, push, then validate again.`,
     manifest_empty: "manifest.json is empty (the file exceeds 1 MiB or is unreadable)",
     manifest_too_large: "manifest.json exceeds the 256 KiB limit",
     manifest_not_json: "manifest.json is not valid JSON",

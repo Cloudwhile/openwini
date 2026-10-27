@@ -149,7 +149,7 @@ pub fn validate_download_url(dl: &str, repo_url: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// 权限列表：≤64 项、每项格式合法、互不重复、属于宿主权限表
+/// 权限列表：≤64 项、每项格式合法、互不重复、已在平台注册
 pub fn validate_permissions(
     perms: &[String],
     known: &std::collections::HashSet<String>,
@@ -166,7 +166,7 @@ pub fn validate_permissions(
             return Err(format!("权限重复：{p}"));
         }
         if !known.contains(p) {
-            return Err(format!("未知权限（不在宿主权限表中）：{p}"));
+            return Err(format!("权限标签尚未在平台注册：{p}"));
         }
     }
     Ok(())

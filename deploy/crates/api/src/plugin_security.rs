@@ -76,6 +76,7 @@ pub fn validate_network(
 }
 
 pub fn validate(manifest: &Value, permissions: &[String]) -> Result<(), String> {
+    validate_desktop(manifest, permissions)?;
     if let Some(terms) = manifest.get("terms").filter(|value| !value.is_null()) {
         let revision = terms
             .get("revision")
@@ -90,4 +91,70 @@ pub fn validate(manifest: &Value, permissions: &[String]) -> Result<(), String> 
         }
     }
     validate_network(network(manifest)?.as_ref(), permissions)
+}
+
+fn validate_desktop(manifest: &Value, permissions: &[String]) -> Result<(), String> {
+    #[derive(Deserialize)]
+    struct Scope {
+        processes: Vec<String>,
+        modules: Vec<String>,
+        purpose: String,
+    }
+    let Some(value) = manifest.get("desktop").filter(|value| !value.is_null()) else {
+        return Ok(());
+    };
+    let scope: Scope = serde_json::from_value(value.clone()).map_err(|_| "插件桌面访问声明无效")?;
+    let names = |values: &[String], module: bool| {
+        let mut unique = HashSet::new();
+        (1..=8).contains(&values.len())
+            && values.iter().all(|name| {
+                !name.is_empty()
+                    && name.len() <= 80
+                    && !name.contains("..")
+                    && name.bytes().all(|c| {
+                        c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-') || module && c == b'.'
+                    })
+                    && (!module || name.to_ascii_lowercase().ends_with(".dll"))
+                    && unique.insert(name.to_ascii_lowercase())
+            })
+    };
+    if !permissions
+        .iter()
+        .any(|permission| permission == "automation")
+        || !permissions.iter().any(|permission| permission == "process")
+        || !names(&scope.processes, false)
+        || !names(&scope.modules, true)
+        || !text(&scope.purpose, 1000)
+    {
+        return Err("插件桌面访问声明无效".into());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod desktop_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn desktop_scopes_are_bounded_declarations_not_permission_grants() {
+        let valid = json!({"desktop":{"processes":["Weixin","WeChat"],"modules":["Weixin.dll"],"purpose":"读取已声明客户端"}});
+        let permissions = ["automation".into(), "process".into()];
+        assert!(validate(&valid, &permissions).is_ok());
+        assert!(validate(&valid, &["automation".into()]).is_err());
+        for (key, value) in [
+            ("processes", json!(["../client"])),
+            ("processes", json!(["WeChat", "wechat"])),
+            ("processes", json!(["WeChat.exe"])),
+            ("modules", json!([])),
+            ("modules", json!(["../client.dll"])),
+            ("modules", json!(["client.exe"])),
+            ("purpose", json!(" ")),
+        ] {
+            let mut manifest = valid.clone();
+            manifest["desktop"][key] = value;
+            assert!(validate(&manifest, &permissions).is_err(), "{key}");
+        }
+        assert!(validate(&json!({"desktop":null}), &[]).is_ok());
+    }
 }

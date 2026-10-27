@@ -76,6 +76,14 @@ docker compose logs --tail=100 api-build web-build api
 
 `/healthz` 检查进程，`/readyz` 检查 API 和数据库就绪状态。
 
+## 客户端与插件
+
+平台直发账号与客户端官方开发者标识均为 `winiofficial`。插件清单使用 `minimumHostVersion`，目录 API 使用 `minHostVersion`；包内省略或为 `null` 时目录值为 `0.0.0`。兼容旧平台时可保留包内 `minHostVersion`，平台要求它与 `minimumHostVersion` 为相同的严格 SemVer 字符串。
+
+权限标签可由开发者登记，实际能力由客户端决定；自定义标签不会增加系统权限。微信为独立官方插件 `wini_plugin_wechat`，仅默认源验证并声明 `desktop` 范围的安装可使用通用桌面代理，微信业务由插件实现，手动 ZIP 不会取得微信连接能力。默认插件源已开放，具体插件的收录状态以客户端 **插件管理 → 发现插件** 列表为准。
+
+完整协议见[目录接口契约](https://wini-docs.abszero.cc/plugins/catalog)。
+
 ## 更新
 
 此目录是当前源码的独立快照，根项目后续修改不会自动同步。更新时替换对应源码和锁文件，保留服务器的 `.env`、`APP_ENCRYPTION_KEY` 和 Docker 卷，在本目录重新执行：

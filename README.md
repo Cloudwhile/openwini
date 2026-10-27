@@ -3,7 +3,7 @@
 WindowsIsland 桌面客户端的插件目录网站。开发者在此提交插件，管理员审核后进入公开目录；客户端从平台拉取目录完成安装与更新。插件本体永远放在开发者自己的
 公开 GitHub 仓库 Release 附件里，平台不托管插件代码，只托管元数据、审核状态和索引。
 
-> 人工审核主要用于减少接口滥用，不代表插件安全、可靠或适合你的设备。平台不是沙箱；process / network 等权限仍可能带来风险。
+> 人工审核主要用于减少接口滥用，不代表插件安全、可靠或适合你的设备。外部插件由客户端隔离运行；权限标签不自动授予系统能力，已授权的后台联网仍需谨慎核查。
 > 下载和使用插件前，请自行核对来源、权限、代码与 Release 内容。
 
 ## 技术栈与布局
@@ -101,12 +101,17 @@ npm run build --workspace apps/web   # 前端类型检查 + 生产构建
 3. 名单中的 GitHub 账号首次通过 GitHub 登录后自动成为管理员（`is_admin`）。
 4. 此后管理员可在「开发者管理」中互相授予或收回管理员权限；环境变量只负责引导授予。
 
-## 宿主侧待同步项
+## 宿主与插件契约
 
-平台的直发账号标识为 **`winiofficial`**。宿主侧 `PluginCatalogClient.OfficialDeveloperId`
-必须同步改为 `winiofficial`（此前为 `cloudwhile`），否则直发账号发布的插件会被宿主按普通插件处理。
-平台侧权限表（`known_permissions` 表，迁移内种子）需与宿主权限表保持同步更新；
-新增权限属于宿主与平台的联合变更，不接受在管理后台随意添加。
+平台直发账号与宿主官方开发者标识统一为 **`winiofficial`**。官方身份由客户端验证默认插件源的安装记录，包内自声明或手动导入不授予官方能力。直发内容仍需接受启用条款与联网须知。
+
+包内最低宿主版本使用 `minimumHostVersion`，目录 API 使用 `minHostVersion`；省略包内字段或设为 `null` 时，目录值为 `0.0.0`。两者使用严格 SemVer。兼容旧平台的包可同时保留 `minHostVersion`，但平台要求它与 `minimumHostVersion` 为相同字符串，不能只提供旧字段。现有微信发布包保留两个一致字段。
+
+平台预置 `notifications`、`settings`、`wechat`、`network`、`process`、`filesystem`、`native`、`automation` 权限标签；开发者也可登记不重名的自定义标签。平台校验标签已登记，宿主根据实际支持的服务决定授予能力；自定义标签不增加系统能力。`process` 与 `automation` 仅为经来源和范围核验的桌面适配器提供宿主代理，仍不授予直接系统访问；`filesystem`、`native` 不向外部插件扩权。旧 `wechat` 标签只保留历史兼容性，不再授予专用监听。
+
+微信是独立官方插件：`wini_plugin_wechat`，开发者 `winiofficial`，仓库 `https://github.com/WinIOfficial/wini_plugin_wechat`，声明 `notifications`、`settings`、`automation` 与 `process`，并在包内 `desktop` 声明客户端范围。微信窗口解析、消息判断、免打扰和头像由插件实现；宿主只向默认源验证的该适配器提供有界通用桌面与模块代理。默认插件源已开放，微信是否收录以客户端 **插件管理 → 发现插件** 列表为准；GitHub Release 与平台收录分别生效。
+
+完整协议见[目录接口契约](https://wini-docs.abszero.cc/plugins/catalog)。
 
 ## 宿主公开 API（契约摘要）
 
@@ -117,13 +122,13 @@ npm run build --workspace apps/web   # 前端类型检查 + 生产构建
   `pluginsUrl`（恒等于 `{base}/api/sources/{developerId}/plugins`）
 - `GET /api/sources/{developerId}/plugins` → 该开发者全部 published 插件，条目字段：
   `id`、`name`、`version`、`developerId`、`repositoryUrl`、`downloadUrl`、`sha256`、
-  `minHostVersion`、`contractVersion`、`permissions`、`description`
+  `minHostVersion`、`contractVersion`、`permissions`、`description`，以及可选的 `network` 联网须知
 
 规则：公开只读、限流、带缓存头；响应体 UTF-8 JSON、顶层数组、单响应 ≤4 MiB；
 空数组合法；永远直接返回 200 + 最新 JSON（无 304、无 3xx）；`downloadUrl` 指向 GitHub
 Release 附件原地址（`https://github.com/{owner}/{repo}/releases/download/{tag}/{file}.zip`），
 不做平台中转。未审核、已停止内容绝不进入索引；`updates_halted` 只出现冻结版本。
-字段约束在入库与出索引时双重校验（严格 SemVer 无前导零、权限需在宿主权限表内、
+字段约束在入库与出索引时双重校验（严格 SemVer 无前导零、权限标签需在平台注册、
 SHA-256 小写 64 位十六进制等，详见 `crates/api/src/validation.rs` 及其单元测试）。
 
 **同一开发者的已发布插件必须来自同一个 GitHub 仓库**：宿主源契约要求插件条目的
@@ -134,7 +139,7 @@ SHA-256 小写 64 位十六进制等，详见 `crates/api/src/validation.rs` 及
 - **开发者**：GitHub 登录 → 首次登录自动以 GitHub 用户名生成 developerId（小写化、连字符转
   下划线、数字开头补 u 前缀、重名自动加 _1/_2 后缀，此后不可改）→ 从本人仓库列表选择仓库
   （平台校验：公开仓库 / owner 或 admin 权限 / Release 存在 ZIP 附件）→ 选 Release 版本 →
-  平台自动读取仓库 `manifest.json` 逐项比对（标识、名称、版本、描述、权限、minHostVersion、
+  平台自动读取仓库 `manifest.json` 逐项比对（标识、名称、版本、描述、权限、minimumHostVersion、
   合约大版本），并计算 ZIP 的 SHA-256 → 提交进入待审。
 - **状态机**：`draft → pending → published`；退回 `rejected`（可改后重提）；`cancelled`
   （draft/pending 可取消，可基于原内容重新申请）；管理员可 `stopped`（立即移出索引，可恢复）、
@@ -164,7 +169,7 @@ SHA-256 小写 64 位十六进制等，详见 `crates/api/src/validation.rs` 及
 2. 复制 `.env.example` 为 `.env`，配置数据库、应用加密密钥、GitHub OAuth 与正式 HTTPS `APP_BASE_URL`；回调地址为 `{APP_BASE_URL}/api/auth/github/callback`。
 3. 按「快速开始」运行 `docker compose up -d --remove-orphans`，再使用 `docker network connect` 将 API 容器接入代理网络，代理转发到 `http://openwini:10180`。检查 `docker compose ps -a` 的服务状态和 `docker compose logs api` 的启动日志。迁移自动执行；`winiofficial` 身份与默认站点配置自动初始化。
 4. 管理员登录后在「站点设置」配置：目录对外基地址（正式域名）、SMTP、（可选）AI 审核。
-5. 上线前提醒宿主侧同步 `OfficialDeveloperId = winiofficial`。
+5. 核对客户端使用相同的官方身份、最低宿主版本映射和权限声明，确认已发布条目可从默认插件源读取。
 
 TLS 代理若传递客户端来源地址，应只为代理实际来源配置受信来源，并由其转发客户端地址。`/readyz` 用于检查 API 和数据库就绪状态；`/healthz` 用于进程存活检查。
 
