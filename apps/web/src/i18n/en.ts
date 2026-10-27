@@ -11,6 +11,7 @@ export const en: Lang = {
       catalog: "Plugin Catalog",
       myPlugins: "My Plugins",
       login: "Sign in with GitHub",
+      loginShort: "Sign in",
       logout: "Sign out",
       adminReview: "Review Queue",
       adminPlugins: "Plugin Management",

@@ -1,5 +1,5 @@
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
-import { Code2, LayoutDashboard, LogOut } from "lucide-react"
+import { LayoutDashboard, LogOut } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Button } from "@workspace/ui/components/button"
 import { Badge } from "@workspace/ui/components/badge"
@@ -84,9 +84,8 @@ export function Layout() {
                 </Button>
               </>
             ) : (
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => navigate("/login")}>
-                <Code2 className="size-4" />
-                {t.site.nav.login}
+              <Button variant="outline" size="sm" onClick={() => navigate("/login")}>
+                {t.site.nav.loginShort}
               </Button>
             )}
           </div>

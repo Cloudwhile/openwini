@@ -9,6 +9,7 @@ export const zh = {
       catalog: "插件目录",
       myPlugins: "我的插件",
       login: "使用 GitHub 登录",
+      loginShort: "登录",
       logout: "退出登录",
       adminReview: "审核队列",
       adminPlugins: "插件管理",
