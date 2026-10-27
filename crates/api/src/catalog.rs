@@ -3,15 +3,15 @@ use axum::http::{header, HeaderValue};
 use axum::response::Response;
 use axum::routing::get;
 use axum::Router;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::error::ApiResult;
 use crate::state::AppState;
 use crate::validation::{self, CatalogEntry, MAX_RESPONSE_BYTES, MAX_SOURCES};
 
 /// 源条目（字段名与顺序即宿主契约）
-#[derive(Serialize)]
-struct SourceEntry {
+#[derive(Serialize, Deserialize)]
+pub(crate) struct SourceEntry {
     #[serde(rename = "developerId")]
     developer_id: String,
     #[serde(rename = "developerName")]
@@ -73,6 +73,12 @@ async fn list_sources(State(state): State<AppState>) -> ApiResult<Response> {
     let base = state.catalog_base_url().await;
     let mut sources: Vec<SourceEntry> = rows
         .into_iter()
+        .filter(|(id, name, repo)| {
+            validation::valid_developer_id(id)
+                && !name.trim().is_empty()
+                && name.encode_utf16().count() <= 200
+                && validation::parse_repo_url(repo).is_ok()
+        })
         .map(
             |(developer_id, developer_name, repository_url)| SourceEntry {
                 developer_id: developer_id.clone(),
@@ -119,11 +125,12 @@ async fn source_plugins(
             i64,
             Vec<String>,
             String,
+            serde_json::Value,
         ),
     >(
         "SELECT p.plugin_id, s.manifest_name, s.version, d.developer_id, p.repository_url,
-                s.download_url, s.sha256, s.min_host_version, s.contract_version,
-                s.permissions, s.description
+                s.download_url, s.sha256, s.min_host_version, s.contract_version::bigint,
+                s.permissions, s.description, s.manifest_json
          FROM plugins p
          JOIN developers d ON d.id = p.developer_id
          JOIN submissions s ON s.id = p.current_submission_id
@@ -140,7 +147,14 @@ async fn source_plugins(
         .unwrap_or_default();
 
     let mut entries: Vec<CatalogEntry> = Vec::with_capacity(rows.len());
-    for (id, name, version, dev_id, repo, dl, sha, mhv, cv, perms, desc) in rows {
+    for (id, name, version, dev_id, repo, dl, sha, mhv, cv, perms, desc, manifest) in rows {
+        let network = match crate::plugin_security::network(&manifest) {
+            Ok(network) => network,
+            Err(error) => {
+                tracing::error!("插件 {} 网络披露无效，已剔除：{}", id, error);
+                continue;
+            }
+        };
         let e = CatalogEntry {
             id,
             name,
@@ -153,9 +167,10 @@ async fn source_plugins(
             contract_version: cv,
             permissions: perms,
             description: desc,
+            network,
         };
         // 出索引双重校验：任一条不符不得进入索引
-        match e.validate(&known) {
+        match e.validate_package(&manifest, &known) {
             Ok(()) => entries.push(e),
             Err(err) => tracing::error!("插件 {} 出索引校验失败，已剔除：{}", e.id, err),
         }

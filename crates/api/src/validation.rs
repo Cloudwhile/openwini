@@ -6,7 +6,23 @@ use serde::{Deserialize, Serialize};
 // —— 宿主侧契约常量（第 6 节）——
 pub const PLUGIN_ID_PREFIX: &str = "wini_plugin_";
 pub const OFFICIAL_DEVELOPER_ID: &str = "winiofficial";
-pub const RESERVED_PLUGIN_IDS: &[&str] = &["wini_plugin_countdown"];
+pub const RESERVED_PLUGIN_IDS: &[&str] = &[
+    "wini_plugin_system",
+    "wini_plugin_telegram",
+    "wini_plugin_power",
+    "wini_plugin_countdown",
+];
+#[cfg(test)]
+pub const HOST_PERMISSIONS: &[&str] = &[
+    "notifications",
+    "settings",
+    "wechat",
+    "process",
+    "network",
+    "filesystem",
+    "native",
+    "automation",
+];
 pub const MAX_SOURCES: i64 = 512;
 pub const MAX_PLUGINS_PER_SOURCE: i64 = 2048;
 pub const MAX_TOTAL_PLUGINS: i64 = 8192;
@@ -24,7 +40,7 @@ static RE_PERMISSION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[a-z][a-z
 static RE_SHA256: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9a-f]{64}$").unwrap());
 // 严格 SemVer 2.0：数字段无前导零，允许 prerelease / build 元数据
 static RE_SEMVER: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$")
+    Regex::new(r"\A(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?\z")
         .unwrap()
 });
 
@@ -44,7 +60,15 @@ pub fn is_reserved_plugin_id(s: &str) -> bool {
 }
 
 pub fn valid_semver(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 64 && RE_SEMVER.is_match(s)
+    if !RE_SEMVER.is_match(s) {
+        return false;
+    }
+    let core = s.split('+').next().unwrap_or(s);
+    core.split_once('-').is_none_or(|(_, pre)| {
+        pre.split('.').all(|part| {
+            !(part.len() > 1 && part.starts_with('0') && part.bytes().all(|c| c.is_ascii_digit()))
+        })
+    })
 }
 
 pub fn valid_sha256(s: &str) -> bool {
@@ -53,6 +77,18 @@ pub fn valid_sha256(s: &str) -> bool {
 
 /// 解析并校验 repositoryUrl：必须严格等于 https://github.com/{owner}/{repo}
 pub fn parse_repo_url(s: &str) -> Result<(String, String), String> {
+    // Match the original string before URL parsers normalize dot segments, casing or credentials.
+    let raw = s
+        .strip_prefix("https://github.com/")
+        .ok_or("repositoryUrl 必须是规范的 GitHub HTTPS 地址")?;
+    let raw_segments: Vec<_> = raw.split('/').collect();
+    if raw_segments.len() != 2
+        || raw_segments.iter().any(|segment| {
+            !RE_REPO_SEGMENT.is_match(segment) || *segment == "." || *segment == ".."
+        })
+    {
+        return Err("repositoryUrl 路径无效".into());
+    }
     let url = url::Url::parse(s).map_err(|_| "repositoryUrl 不是合法 URL".to_string())?;
     if url.scheme() != "https" {
         return Err("repositoryUrl 必须是 https".into());
@@ -87,53 +123,29 @@ pub fn parse_repo_url(s: &str) -> Result<(String, String), String> {
 /// 校验 downloadUrl：https://github.com/{owner}/{repo}/releases/download/{tag}/{file}.zip
 /// owner/repo 必须与 repositoryUrl 一致；tag/file 为单个非空段、不含 ..、不含百分号编码
 pub fn validate_download_url(dl: &str, repo_url: &str) -> Result<(), String> {
-    let (owner, repo) = parse_repo_url(repo_url)?;
-    let url = url::Url::parse(dl).map_err(|_| "downloadUrl 不是合法 URL".to_string())?;
-    if url.scheme() != "https" {
-        return Err("downloadUrl 必须是 https".into());
+    parse_repo_url(repo_url)?;
+    let prefix = format!("{repo_url}/releases/download/");
+    let raw = dl
+        .strip_prefix(&prefix)
+        .ok_or("downloadUrl 必须使用同一仓库的规范 Release 地址")?;
+    let parts: Vec<_> = raw.split('/').collect();
+    if parts.len() != 2
+        || parts.iter().any(|part| {
+            part.is_empty()
+                || *part == "."
+                || part.contains("..")
+                || part.contains('%')
+                || part
+                    .chars()
+                    .any(|c| c.is_control() || c.is_whitespace() || matches!(c, '\\' | '?' | '#'))
+        })
+        || !parts[1].ends_with(".zip")
+        || parts[1].len() <= 4
+    {
+        return Err("downloadUrl 的标签或 ZIP 文件名无效".into());
     }
-    if url.host_str() != Some("github.com") {
-        return Err("downloadUrl 域名必须恰好是 github.com".into());
-    }
-    if url.port().is_some() {
-        return Err("downloadUrl 不能带端口".into());
-    }
-    if !url.username().is_empty() || url.password().is_some() {
-        return Err("downloadUrl 不能带 userinfo".into());
-    }
-    if url.query().is_some() || url.fragment().is_some() {
-        return Err("downloadUrl 不能带 query 或 fragment".into());
-    }
-    let path = url.path();
-    if path.ends_with('/') {
-        return Err("downloadUrl 不能以斜杠结尾".into());
-    }
-    let segs: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-    if segs.len() != 6 {
-        return Err("downloadUrl 路径必须是 /{owner}/{repo}/releases/download/{tag}/{file}".into());
-    }
-    let [dl_owner, dl_repo, kw1, kw2, tag, file] =
-        [segs[0], segs[1], segs[2], segs[3], segs[4], segs[5]];
-    if dl_owner != owner || dl_repo != repo {
-        return Err("downloadUrl 的 owner/repo 必须与 repositoryUrl 一致".into());
-    }
-    if kw1 != "releases" || kw2 != "download" {
-        return Err("downloadUrl 路径必须是 /releases/download/ 段".into());
-    }
-    for seg in [tag, file] {
-        if seg.is_empty()
-            || seg == "."
-            || seg == ".."
-            || seg.contains('%')
-            || seg.contains('/')
-            || seg.contains('\\')
-        {
-            return Err(format!("downloadUrl 的段非法：{seg}"));
-        }
-    }
-    if !file.to_ascii_lowercase().ends_with(".zip") || file.len() <= ".zip".len() {
-        return Err("downloadUrl 的文件名必须以 .zip 结尾".into());
-    }
+    // Preserve the raw path for validation; parsing may percent-encode valid Unicode file names.
+    url::Url::parse(dl).map_err(|_| "downloadUrl 不是合法 URL".to_string())?;
     Ok(())
 }
 
@@ -184,18 +196,50 @@ pub struct CatalogEntry {
     pub contract_version: i64,
     pub permissions: Vec<String>,
     pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network: Option<crate::plugin_security::NetworkDisclosure>,
 }
 
 impl CatalogEntry {
+    pub fn validate_package(
+        &self,
+        manifest: &serde_json::Value,
+        known: &std::collections::HashSet<String>,
+    ) -> Result<(), String> {
+        self.validate(known)?;
+        crate::manifest::validate(
+            manifest,
+            &self.id,
+            &self.version,
+            &self.developer_id,
+            &self.repository_url,
+            known,
+        )?;
+        let permissions: Vec<String> =
+            serde_json::from_value(manifest["permissions"].clone()).map_err(|_| "清单权限无效")?;
+        let mut expected = permissions;
+        expected.sort();
+        let mut indexed = self.permissions.clone();
+        indexed.sort();
+        if crate::manifest::minimum_host_version(manifest)? != self.min_host_version
+            || manifest["contractVersion"].as_i64() != Some(self.contract_version)
+            || expected != indexed
+            || manifest["name"].as_str() != Some(self.name.as_str())
+        {
+            return Err("目录条目与插件清单不一致".into());
+        }
+        Ok(())
+    }
+
     /// 出索引时的全字段双重校验，任一不符不得进入索引
     pub fn validate(&self, known: &std::collections::HashSet<String>) -> Result<(), String> {
         if !valid_developer_id(&self.developer_id) {
             return Err(format!("developerId 非法：{}", self.developer_id));
         }
-        if self.name.is_empty() || self.name.chars().count() > 200 {
+        if self.name.trim().is_empty() || self.name.encode_utf16().count() > 200 {
             return Err(format!("name 非法（插件 {}）", self.id));
         }
-        if self.description.chars().count() > 8000 {
+        if self.description.encode_utf16().count() > 8000 {
             return Err(format!("description 超 8000 字符（插件 {}）", self.id));
         }
         if !valid_plugin_id(&self.id) || is_reserved_plugin_id(&self.id) {
@@ -220,6 +264,7 @@ impl CatalogEntry {
             return Err(format!("sha256 非法（插件 {}）", self.id));
         }
         validate_permissions(&self.permissions, known)?;
+        crate::plugin_security::validate_network(self.network.as_ref(), &self.permissions)?;
         validate_download_url(&self.download_url, &self.repository_url)?;
         parse_repo_url(&self.repository_url)?;
         Ok(())
@@ -231,10 +276,7 @@ mod tests {
     use super::*;
 
     fn known() -> std::collections::HashSet<String> {
-        ["notifications", "storage", "network", "process"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect()
+        HOST_PERMISSIONS.iter().map(|s| s.to_string()).collect()
     }
 
     #[test]
@@ -391,6 +433,7 @@ mod tests {
             contract_version: 1,
             permissions: vec!["notifications".into()],
             description: String::new(),
+            network: None,
         };
         assert!(e.validate(&k).is_ok());
         let mut bad = e.clone();
@@ -420,6 +463,7 @@ mod tests {
             contract_version: 1,
             permissions: vec!["notifications".into()],
             description: "d".into(),
+            network: None,
         };
         let s = serde_json::to_string(&e).unwrap();
         let expected_prefix = "{\"id\":\"wini_plugin_demo\",\"name\":\"Demo\",\"version\":\"1.0.0\",\"developerId\":\"alice\",\"repositoryUrl\":\"https://github.com/alice/my-repo\",\"downloadUrl\":";

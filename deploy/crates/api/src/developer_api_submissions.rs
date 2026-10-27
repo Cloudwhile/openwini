@@ -603,6 +603,7 @@ async fn do_submit(
         &state,
         &token,
         &p.plugin_id,
+        &user.dev.developer_id,
         repo,
         version,
         Some(&description),

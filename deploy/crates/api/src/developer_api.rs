@@ -14,6 +14,7 @@ use crate::submission as sub;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/dev/profile", put(update_profile))
+        .route("/dev/permissions", post(create_permission))
         .route("/dev/github/disconnect", post(disconnect_github))
         .route("/dev/repos", get(list_repos))
         .route("/dev/repos/validate", post(validate_repo))
@@ -38,3 +39,4 @@ pub fn router() -> Router<AppState> {
 
 include!("developer_api_core.rs");
 include!("developer_api_submissions.rs");
+include!("developer_api_permissions.rs");

@@ -29,6 +29,7 @@ import {
 } from "@/lib/api"
 import { useToast } from "@/components/toast"
 import { PermissionBadges } from "@/components/permission-badge"
+import { PermissionRegister } from "@/components/permission-register"
 import { SearchableSelect, type SearchOption } from "@/components/searchable-select"
 import { ErrorState, LoadingState } from "@/components/page-states"
 import { PageContainer, PageHeader, FormField } from "@/components/page-header"
@@ -615,7 +616,7 @@ export function SubmitPage({ mode }: { mode: Mode }) {
                   <Input value={manifest.name ?? ""} disabled />
                 </FormField>
                 <FormField label={t.submit.manifestMinHost}>
-                  <Input value={manifest.minHostVersion ?? ""} disabled />
+                  <Input value={manifest.minimumHostVersion ?? ""} disabled />
                 </FormField>
                 <FormField label={t.submit.manifestContract}>
                   <Input value={String(manifest.contractVersion ?? "")} disabled />
@@ -635,6 +636,7 @@ export function SubmitPage({ mode }: { mode: Mode }) {
               </div>
               <FormField label={t.submit.manifestPermissions}>
                 <PermissionBadges permissions={manifest.permissions ?? []} known={known} />
+                <PermissionRegister known={known} onCreated={(permission) => setKnown((current) => ({ ...current, [permission.name]: permission }))} />
               </FormField>
               <FormField label={t.submit.manifestDescription}>
                 <Textarea value={manifest.description ?? ""} disabled rows={5} />

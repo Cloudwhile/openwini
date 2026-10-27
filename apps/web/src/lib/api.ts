@@ -310,7 +310,7 @@ export interface ManifestPreview {
     version?: string
     description?: string
     description_en?: string
-    minHostVersion?: string
+    minimumHostVersion?: string | null
     contractVersion?: number
     permissions?: string[]
   }

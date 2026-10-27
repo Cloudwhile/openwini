@@ -323,9 +323,9 @@ async fn load_entry_for_submission(
     state: &AppState,
     submission_id: i64,
 ) -> ApiResult<v::CatalogEntry> {
-    let row = sqlx::query_as::<_, (String, String, String, String, String, String, String, String, i64, Vec<String>, String)>(
+    let row = sqlx::query_as::<_, (String, String, String, String, String, String, String, String, i64, Vec<String>, String, Value)>(
         "SELECT p.plugin_id, s.manifest_name, s.version, d.developer_id, p.repository_url,
-                s.download_url, s.sha256, s.min_host_version, s.contract_version, s.permissions, s.description
+                s.download_url, s.sha256, s.min_host_version, s.contract_version::bigint, s.permissions, s.description, s.manifest_json
          FROM submissions s
          JOIN plugins p ON p.id = s.plugin_id
          JOIN developers d ON d.id = p.developer_id
@@ -348,8 +348,10 @@ async fn load_entry_for_submission(
         contract_version,
         permissions,
         description,
+        manifest,
     ) = row;
-    Ok(v::CatalogEntry {
+    let known = sub::known_permission_set(state).await?;
+    let entry = v::CatalogEntry {
         id,
         name,
         version,
@@ -361,7 +363,10 @@ async fn load_entry_for_submission(
         contract_version,
         permissions,
         description,
-    })
+        network: crate::plugin_security::network(&manifest).map_err(AppError::Conflict)?,
+    };
+    entry.validate_package(&manifest, &known).map_err(AppError::Conflict)?;
+    Ok(entry)
 }
 
 async fn check_catalog_quotas(

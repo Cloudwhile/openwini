@@ -9,6 +9,10 @@ mod developer_api;
 mod error;
 mod github;
 mod mailer;
+mod manifest;
+#[cfg(test)]
+mod platform_contract;
+mod plugin_security;
 mod public_api;
 mod ratelimit;
 mod routes;

@@ -112,6 +112,7 @@ async fn official_upsert(
         state,
         &token,
         &plugin_id,
+        v::OFFICIAL_DEVELOPER_ID,
         body.repository_url.trim(),
         body.version.trim(),
         None, /* 直发：描述以清单为准 */
@@ -135,9 +136,10 @@ async fn official_upsert(
         contract_version: validated.contract_version,
         permissions: validated.permissions.clone(),
         description: validated.description.clone(),
+        network: crate::plugin_security::network(&validated.manifest_json).map_err(AppError::BadRequest)?,
     };
     entry
-        .validate(&known)
+        .validate_package(&validated.manifest_json, &known)
         .map_err(|e| AppError::BadRequest(format!("契约校验未通过：{e}")))?;
     check_catalog_quotas(tx, official_row.0, !is_create).await?;
 

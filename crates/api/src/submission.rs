@@ -110,6 +110,7 @@ pub async fn validate_full(
     state: &AppState,
     token: &str,
     plugin_id_form: &str,
+    developer_id: &str,
     repo_url: &str,
     version_form: &str,
     description_form: Option<&str>,
@@ -190,6 +191,16 @@ pub async fn validate_full(
         .await
         .map_err(|e| vec![format!("读取仓库根目录 manifest.json 失败：{e}")])?;
 
+    crate::manifest::validate(
+        &manifest,
+        plugin_id_form,
+        version_form,
+        developer_id,
+        repo_url,
+        known_permissions,
+    )
+    .map_err(|error| vec![error])?;
+
     let m_id = manifest.get("id").and_then(|x| x.as_str()).unwrap_or("");
     let m_name = manifest.get("name").and_then(|x| x.as_str()).unwrap_or("");
     let m_ver = manifest
@@ -199,10 +210,7 @@ pub async fn validate_full(
     let m_desc = manifest.get("description").and_then(|x| x.as_str());
     // 可选的英文清单字段 description_en：存在时必须与表单英文描述一致
     let m_desc_en = manifest.get("description_en").and_then(|x| x.as_str());
-    let m_min = manifest
-        .get("minHostVersion")
-        .and_then(|x| x.as_str())
-        .unwrap_or("");
+    let m_min = crate::manifest::minimum_host_version(&manifest).map_err(|error| vec![error])?;
     let m_contract = manifest.get("contractVersion").and_then(|x| x.as_i64());
     let m_perms = match manifest.get("permissions").and_then(|x| x.as_array()) {
         Some(items) if items.iter().all(|item| item.is_string()) => items
@@ -255,7 +263,9 @@ pub async fn validate_full(
         diffs.push("清单 name 必须非空且不超过 200 字符".into());
     }
     if !v::valid_semver(m_min) {
-        diffs.push(format!("清单 minHostVersion（{m_min}）不是严格 SemVer 2.0"));
+        diffs.push(format!(
+            "清单 minimumHostVersion（{m_min}）不是严格 SemVer 2.0"
+        ));
     }
     match m_contract {
         Some(c) if (1..=i64::from(i32::MAX)).contains(&c) => {}
@@ -354,8 +364,8 @@ pub async fn validate_full(
 }
 
 pub async fn known_permission_set(state: &AppState) -> Result<std::collections::HashSet<String>> {
-    let rows: Vec<(String,)> = sqlx::query_as("SELECT name FROM known_permissions")
+    let names: Vec<String> = sqlx::query_scalar("SELECT name FROM known_permissions")
         .fetch_all(state.pool())
         .await?;
-    Ok(rows.into_iter().map(|(n,)| n).collect())
+    Ok(names.into_iter().collect())
 }

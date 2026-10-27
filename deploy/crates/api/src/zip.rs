@@ -7,7 +7,7 @@ use std::io::Read as _;
 const EOCD_SIG: u32 = 0x0605_4b50;
 const CDE_SIG: u32 = 0x0201_4b50;
 const LFH_SIG: u32 = 0x0403_4b50;
-const ENTRY_MAX_BYTES: u32 = 8 * 1024 * 1024;
+const ENTRY_MAX_BYTES: u32 = 128 * 1024 * 1024;
 
 #[derive(Debug)]
 pub struct ZipEntry {
@@ -18,6 +18,7 @@ pub struct ZipEntry {
     comp_size: u32,
     uncomp_size: u32,
     local_offset: u32,
+    external_attributes: u32,
 }
 
 fn u16_at(d: &[u8], off: usize) -> Option<u16> {
@@ -84,6 +85,7 @@ pub fn parse_entries(data: &[u8]) -> Result<Vec<ZipEntry>, String> {
         let extra_len = u16_at(data, p + 30).ok_or("ZIP 目录损坏")? as usize;
         let comment_len = u16_at(data, p + 32).ok_or("ZIP 目录损坏")? as usize;
         let local_offset = u32_at(data, p + 42).ok_or("ZIP 目录损坏")?;
+        let external_attributes = u32_at(data, p + 38).ok_or("ZIP 目录损坏")?;
         let name_start = p + 46;
         let name_bytes = data
             .get(name_start..name_start + name_len)
@@ -97,6 +99,7 @@ pub fn parse_entries(data: &[u8]) -> Result<Vec<ZipEntry>, String> {
             comp_size,
             uncomp_size,
             local_offset,
+            external_attributes,
         });
         p = name_start + name_len + extra_len + comment_len;
         if p > cd_end {
@@ -126,7 +129,7 @@ pub fn read_entry(data: &[u8], e: &ZipEntry) -> Result<Vec<u8>, String> {
         return Err(format!("ZIP 条目 {} 已加密，不接受加密的插件包", e.name));
     }
     if e.uncomp_size > ENTRY_MAX_BYTES {
-        return Err(format!("ZIP 条目 {} 解压后超过 8 MiB，异常", e.name));
+        return Err(format!("ZIP 条目 {} 解压后超过 128 MiB", e.name));
     }
     let off = e.local_offset as usize;
     if u32_at(data, off) != Some(LFH_SIG) {
@@ -198,6 +201,7 @@ pub fn verify_plugin_zip(
     expect_version: &str,
 ) -> Result<serde_json::Value, String> {
     let entries = parse_entries(data)?;
+    validate_structure(&entries)?;
     if entries.is_empty() {
         return Err("ZIP 包为空".into());
     }
@@ -257,7 +261,67 @@ pub fn verify_plugin_zip(
     if !problems.is_empty() {
         return Err(problems.join("；"));
     }
+    let entry_assembly = manifest
+        .get("entryAssembly")
+        .and_then(serde_json::Value::as_str)
+        .filter(|path| crate::manifest::relative_path(path))
+        .ok_or("清单 entryAssembly 无效")?;
+    if !entries
+        .iter()
+        .any(|entry| !entry.name.ends_with('/') && entry.name.eq_ignore_ascii_case(entry_assembly))
+    {
+        return Err("ZIP 中找不到入口程序集".into());
+    }
+    // Verify every payload, not only the manifest, before publishing a downloadable package.
+    for entry in &entries {
+        read_entry(data, entry)?;
+    }
     Ok(manifest)
+}
+
+fn validate_structure(entries: &[ZipEntry]) -> Result<(), String> {
+    if entries.is_empty() || entries.len() > 4096 {
+        return Err("ZIP 条目数量无效".into());
+    }
+    let mut names = std::collections::HashSet::new();
+    let mut total = 0u64;
+    let mut manifests = 0;
+    for entry in entries {
+        let path = entry.name.trim_end_matches('/');
+        let mode = (entry.external_attributes >> 16) & 0xf000;
+        if !crate::manifest::relative_path(path)
+            || !matches!(mode, 0 | 0x8000 | 0x4000)
+            || entry.external_attributes & 0x400 != 0
+            || !names.insert(path.to_lowercase())
+            || path.split('/').any(|part| {
+                let base = part.split('.').next().unwrap_or("").to_ascii_uppercase();
+                matches!(base.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+                    || base.len() == 4
+                        && (base.starts_with("COM") || base.starts_with("LPT"))
+                        && base.as_bytes()[3].is_ascii_digit()
+            })
+        {
+            return Err("ZIP 含无效路径、重复文件、设备名或链接".into());
+        }
+        if path
+            .rsplit('/')
+            .next()
+            .is_some_and(|name| name.eq_ignore_ascii_case("manifest.json"))
+        {
+            if path.contains('/') {
+                return Err("manifest.json 必须放在 ZIP 根目录".into());
+            }
+            manifests += 1;
+        }
+        total += u64::from(entry.uncomp_size);
+        if entry.uncomp_size > ENTRY_MAX_BYTES || total > 256 * 1024 * 1024 {
+            return Err("插件包解压大小超出限制".into());
+        }
+    }
+    if manifests > 1 {
+        return Err("ZIP 根目录只能包含一份 manifest.json".into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -340,7 +404,8 @@ mod tests {
         out
     }
 
-    const GOOD_MANIFEST: &str = r#"{"id":"wini_plugin_demo","version":"1.0.0","name":"Demo"}"#;
+    const GOOD_MANIFEST: &str =
+        r#"{"id":"wini_plugin_demo","version":"1.0.0","name":"Demo","entryAssembly":"main.dll"}"#;
 
     #[test]
     fn valid_zip_passes() {
@@ -404,5 +469,62 @@ mod tests {
         z[payload] ^= 1;
         let err = verify_plugin_zip(&z, "wini_plugin_demo", "1.0.0").unwrap_err();
         assert!(err.contains("校验和"), "got: {err}");
+    }
+
+    #[test]
+    fn host_rejected_archive_paths_cannot_be_published() {
+        for name in [
+            "../escape.dll",
+            "sub/../escape.dll",
+            "sub\\escape.dll",
+            "C:/escape.dll",
+            "con.dll",
+            "sub/COM1.txt",
+            "sub/file.",
+            "sub/file ",
+            "sub//file",
+            "sub/manifest.json",
+        ] {
+            let zip = build_stored_zip(&[
+                ("manifest.json", GOOD_MANIFEST.as_bytes()),
+                ("main.dll", b"MZ"),
+                (name, b"payload"),
+            ]);
+            assert!(
+                verify_plugin_zip(&zip, "wini_plugin_demo", "1.0.0").is_err(),
+                "{name}"
+            );
+        }
+        for name in ["MANIFEST.JSON", "MAIN.DLL"] {
+            let zip = build_stored_zip(&[
+                ("manifest.json", GOOD_MANIFEST.as_bytes()),
+                ("main.dll", b"MZ"),
+                (name, b"payload"),
+            ]);
+            assert!(
+                verify_plugin_zip(&zip, "wini_plugin_demo", "1.0.0").is_err(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn missing_entry_and_corrupt_payload_cannot_be_published() {
+        let zip = build_stored_zip(&[("manifest.json", GOOD_MANIFEST.as_bytes())]);
+        assert!(verify_plugin_zip(&zip, "wini_plugin_demo", "1.0.0")
+            .unwrap_err()
+            .contains("入口"));
+        let mut zip = build_stored_zip(&[
+            ("manifest.json", GOOD_MANIFEST.as_bytes()),
+            ("main.dll", b"MZunique"),
+        ]);
+        let offset = zip
+            .windows(8)
+            .position(|value| value == b"MZunique")
+            .unwrap();
+        zip[offset] ^= 1;
+        assert!(verify_plugin_zip(&zip, "wini_plugin_demo", "1.0.0")
+            .unwrap_err()
+            .contains("校验和"));
     }
 }
