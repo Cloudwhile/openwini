@@ -115,7 +115,8 @@ npm run build --workspace apps/web   # 前端类型检查 + 生产构建
 
 ## 宿主公开 API（契约摘要）
 
-基地址可由管理员在后台配置（`catalog_base_url`，默认 `https://plugins.windowsisland.example`），
+基地址默认使用部署配置中的 `APP_BASE_URL`，管理员可在后台覆盖（`catalog_base_url`）。
+升级时会清除旧版占位地址，保留已配置的自定义地址。
 索引路径固定：
 
 - `GET /api/sources` → 顶层数组，源条目字段：`developerId`、`developerName`、`repositoryUrl`、

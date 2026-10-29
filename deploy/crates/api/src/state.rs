@@ -125,14 +125,59 @@ impl AppState {
     }
 
     pub async fn catalog_base_url(&self) -> String {
-        self.site_config("catalog_base_url")
-            .await
-            .unwrap_or_else(|| "https://plugins.windowsisland.example".into())
-            .trim_end_matches('/')
-            .to_string()
+        let configured = self.site_config("catalog_base_url").await;
+        resolve_catalog_base_url(configured.as_deref(), &self.config().app_base_url)
     }
 
     pub fn enqueue_mail(&self, email_log_id: i64) {
         let _ = self.0.mail_tx.send(email_log_id);
+    }
+}
+
+fn resolve_catalog_base_url(configured: Option<&str>, app_base_url: &str) -> String {
+    configured
+        .map(str::trim)
+        .map(|value| value.trim_end_matches('/'))
+        .filter(|value| !value.is_empty() && *value != "https://plugins.windowsisland.example")
+        .unwrap_or(app_base_url)
+        .trim_end_matches('/')
+        .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_catalog_base_url;
+
+    #[test]
+    fn missing_or_empty_catalog_base_uses_public_app_address() {
+        for configured in [None, Some(""), Some("  "), Some("/")] {
+            assert_eq!(
+                resolve_catalog_base_url(configured, "https://wini-plugins.abszero.cc/"),
+                "https://wini-plugins.abszero.cc"
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_catalog_placeholder_uses_public_app_address() {
+        for configured in [
+            "https://plugins.windowsisland.example",
+            " https://plugins.windowsisland.example/ ",
+        ] {
+            assert_eq!(
+                resolve_catalog_base_url(Some(configured), "https://wini-plugins.abszero.cc"),
+                "https://wini-plugins.abszero.cc"
+            );
+        }
+    }
+
+    #[test]
+    fn explicit_catalog_base_is_preserved() {
+        for configured in ["https://catalog.example/custom/", "http://localhost:8080/"] {
+            assert_eq!(
+                resolve_catalog_base_url(Some(configured), "https://wini-plugins.abszero.cc"),
+                configured.trim_end_matches('/')
+            );
+        }
     }
 }
