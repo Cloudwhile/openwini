@@ -182,3 +182,5 @@ TLS 代理若传递客户端来源地址，应只为代理实际来源配置受�
 - 密钥类配置（GitHub Token、SMTP 密码、AI Key）用应用级密钥 AES-256-GCM 加密存库，日志与前端
   永不出现，密钥轮换不影响已发布插件。
 - 公开 API 与站内接口按 IP 限流；随机数全部使用系统安全随机源；审计日志只增不改。
+
+Telegram 同样使用独立官方插件 `wini_plugin_telegram`，仓库为 `https://github.com/WinIOfficial/wini_plugin_telegram`。该标识不属于宿主内置保留项；连接能力仍由客户端核验默认源安装凭据后授予。

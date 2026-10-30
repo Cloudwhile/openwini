@@ -95,3 +95,5 @@ docker network connect --alias openwini proxy-network "$(docker compose ps -q ap
 ```
 
 在服务器上保持部署目录名或 Compose 项目名一致，以复用原有命名卷。
+
+Telegram 独立插件使用 `wini_plugin_telegram`，该标识可登记入目录；客户端连接能力需要默认源验证。
