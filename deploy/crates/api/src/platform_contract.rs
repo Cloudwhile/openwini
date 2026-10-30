@@ -127,6 +127,7 @@ fn package_minimum_and_provenance_cannot_diverge() {
         assert!(v::is_reserved_plugin_id(id));
     }
     assert!(!v::is_reserved_plugin_id("wini_plugin_wechat"));
+    assert!(!v::is_reserved_plugin_id("wini_plugin_telegram"));
     let entry: v::CatalogEntry = serde_json::from_value(f["entry"].clone()).unwrap();
     for (key, value) in [
         ("contractVersion", json!(2)),

@@ -8,7 +8,6 @@ pub const PLUGIN_ID_PREFIX: &str = "wini_plugin_";
 pub const OFFICIAL_DEVELOPER_ID: &str = "winiofficial";
 pub const RESERVED_PLUGIN_IDS: &[&str] = &[
     "wini_plugin_system",
-    "wini_plugin_telegram",
     "wini_plugin_power",
     "wini_plugin_countdown",
 ];
