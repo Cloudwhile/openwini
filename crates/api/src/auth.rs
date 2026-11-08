@@ -259,6 +259,21 @@ async fn oauth_callback(
         && user.login.to_ascii_lowercase() == cfg.official_github_login;
     if is_official {
         let mut tx = state.pool().begin().await.map_err(anyhow::Error::from)?;
+        let binding: (i64, Option<i64>) = sqlx::query_as(
+            "SELECT id, github_user_id FROM developers
+             WHERE developer_id=$1 AND is_system FOR UPDATE",
+        )
+        .bind(crate::validation::OFFICIAL_DEVELOPER_ID)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(anyhow::Error::from)?;
+        if binding.1 != Some(user.id) {
+            sqlx::query("DELETE FROM sessions WHERE developer_id=$1")
+                .bind(binding.0)
+                .execute(&mut *tx)
+                .await
+                .map_err(anyhow::Error::from)?;
+        }
         // 若该 GitHub 账号此前以普通开发者身份登录过，先解绑旧行（官方身份唯一）
         sqlx::query(
             "UPDATE developers SET github_user_id=NULL, github_token_encrypted=NULL, updated_at=now()
@@ -301,6 +316,9 @@ async fn oauth_callback(
             )
             .await?;
         }
+        let unusual =
+            is_unusual_login(&mut *tx, binding.0, login_ip.as_deref(), &user_agent).await?;
+        let session = create_session(&mut *tx, binding.0, login_ip.as_deref(), &user_agent).await?;
         tx.commit().await.map_err(anyhow::Error::from)?;
         let row: (i64,) = sqlx::query_as("SELECT id FROM developers WHERE developer_id=$1")
             .bind(crate::validation::OFFICIAL_DEVELOPER_ID)
@@ -313,7 +331,6 @@ async fn oauth_callback(
                 .fetch_one(state.pool())
                 .await
                 .map_err(anyhow::Error::from)?;
-        let unusual = is_unusual_login(&state, row.0, login_ip.as_deref(), &user_agent).await?;
         let event_id = record_login_event(
             &state,
             row.0,
@@ -324,7 +341,6 @@ async fn oauth_callback(
             unusual,
         )
         .await?;
-        let session = create_session(state.pool(), row.0, login_ip.as_deref(), &user_agent).await?;
         if unusual {
             mailer::notify_unusual_login(
                 &state,
@@ -340,14 +356,15 @@ async fn oauth_callback(
     }
 
     // 已有账号：刷新资料与 Token，引导管理员标记，建立会话
-    let existing: Option<(i64,)> =
-        sqlx::query_as("SELECT id FROM developers WHERE github_user_id = $1")
+    let existing: Option<(i64, bool)> =
+        sqlx::query_as("SELECT id, is_system FROM developers WHERE github_user_id = $1")
             .bind(user.id)
             .fetch_optional(state.pool())
             .await
             .map_err(anyhow::Error::from)?;
 
-    let mut resp = if let Some((dev_row_id,)) = existing {
+    let mut resp = if let Some((dev_row_id, is_system)) = existing {
+        ensure_generic_oauth_allowed(is_system)?;
         sqlx::query(
             "UPDATE developers SET github_login=$1, avatar_url=$2, email=$3,
                 github_token_encrypted=$4,
@@ -371,7 +388,7 @@ async fn oauth_callback(
                 .await
                 .map_err(anyhow::Error::from)?;
         let unusual =
-            is_unusual_login(&state, dev_row_id, login_ip.as_deref(), &user_agent).await?;
+            is_unusual_login(state.pool(), dev_row_id, login_ip.as_deref(), &user_agent).await?;
         let event_id = record_login_event(
             &state,
             dev_row_id,
@@ -538,6 +555,15 @@ async fn auto_register(
     Err(last_err)
 }
 
+fn ensure_generic_oauth_allowed(is_system: bool) -> ApiResult<()> {
+    if is_system {
+        return Err(AppError::Forbidden(
+            "该 GitHub 账号不是当前配置的官方账号，无法登录系统身份".into(),
+        ));
+    }
+    Ok(())
+}
+
 fn finish_login_redirect(state: &AppState, session: &str) -> Response {
     let mut r = Redirect::to(&format!("{}/me", state.config().app_base_url)).into_response();
     r.headers_mut().append(
@@ -554,8 +580,8 @@ fn finish_login_redirect(state: &AppState, session: &str) -> Response {
     r
 }
 
-async fn create_session(
-    pool: &sqlx::PgPool,
+async fn create_session<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
     dev_row_id: i64,
     login_ip: Option<&str>,
     user_agent: &str,
@@ -574,7 +600,7 @@ async fn create_session(
     .bind(SESSION_TTL_DAYS as i32)
     .bind(login_ip)
     .bind(user_agent)
-    .execute(pool)
+    .execute(executor)
     .await
     .map_err(anyhow::Error::from)?;
     Ok(token)
@@ -613,8 +639,8 @@ fn request_login_ip(
     Some(peer.to_string())
 }
 
-async fn is_unusual_login(
-    state: &AppState,
+async fn is_unusual_login<'e>(
+    executor: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
     developer_id: i64,
     login_ip: Option<&str>,
     user_agent: &str,
@@ -627,7 +653,7 @@ async fn is_unusual_login(
          LIMIT 1",
     )
     .bind(developer_id)
-    .fetch_optional(state.pool())
+    .fetch_optional(executor)
     .await
     .map_err(anyhow::Error::from)?;
     let Some((previous_ip, previous_ua)) = previous else {
@@ -713,7 +739,16 @@ async fn me(user: Option<CurrentUser>) -> ApiResult<Json<serde_json::Value>> {
 
 #[cfg(test)]
 mod tests {
-    use super::sanitize_developer_candidate;
+    use super::{ensure_generic_oauth_allowed, sanitize_developer_candidate};
+
+    #[test]
+    fn generic_oauth_cannot_login_as_system() {
+        assert!(matches!(
+            ensure_generic_oauth_allowed(true),
+            Err(crate::error::AppError::Forbidden(_))
+        ));
+        assert!(ensure_generic_oauth_allowed(false).is_ok());
+    }
 
     #[test]
     fn plain_login_unchanged() {
