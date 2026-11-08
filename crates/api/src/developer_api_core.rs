@@ -38,6 +38,10 @@ fn coded_bad_request(e: anyhow::Error) -> AppError {
     AppError::BadRequest(format!("{e}"))
 }
 
+fn valid_display_name(name: &str) -> bool {
+    !name.is_empty() && name.encode_utf16().count() <= 200
+}
+
 async fn update_profile(
     State(state): State<AppState>,
     user: CurrentUser,
@@ -50,7 +54,7 @@ async fn update_profile(
         .unwrap_or("")
         .trim()
         .to_string();
-    if name.is_empty() || name.chars().count() > 200 {
+    if !valid_display_name(&name) {
         return Err(AppError::BadRequest(
             "显示名称必须非空且不超过 200 字符".into(),
         ));
@@ -62,9 +66,7 @@ async fn update_profile(
         .trim()
         .to_ascii_lowercase();
     if !matches!(preferred_language.as_str(), "zh" | "en") {
-        return Err(AppError::BadRequest(
-            "语言偏好只能是 zh 或 en".into(),
-        ));
+        return Err(AppError::BadRequest("语言偏好只能是 zh 或 en".into()));
     }
     sqlx::query(
         "UPDATE developers SET display_name=$1, preferred_language=$2, updated_at=now() WHERE id=$3",
@@ -90,6 +92,22 @@ async fn disconnect_github(
         .map_err(anyhow::Error::from)?;
     // 已发布插件不受影响；只是无法提交新申请，直到重新授权
     Ok(StatusCode204)
+}
+
+#[cfg(test)]
+mod profile_tests {
+    use super::valid_display_name;
+
+    #[test]
+    fn display_name_limit_counts_utf16_units() {
+        assert!(!valid_display_name(""));
+        assert!(valid_display_name(&"a".repeat(200)));
+        assert!(!valid_display_name(&"a".repeat(201)));
+        assert!(valid_display_name(&"😀".repeat(100)));
+        assert!(!valid_display_name(&"😀".repeat(101)));
+        assert!(valid_display_name(&format!("{}😀", "a".repeat(198))));
+        assert!(!valid_display_name(&format!("{}😀", "a".repeat(199))));
+    }
 }
 
 struct StatusCode204;
