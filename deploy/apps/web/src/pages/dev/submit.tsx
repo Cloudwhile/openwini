@@ -116,7 +116,7 @@ export function SubmitPage({ mode }: { mode: Mode }) {
   const [step, setStep] = useState<1 | 2 | 3>(1)
   const [loadError, setLoadError] = useState("")
   const [loadAttempt, setLoadAttempt] = useState(0)
-  const [draftCreated, setDraftCreated] = useState(false)
+  const [createdPluginId, setCreatedPluginId] = useState<string | null>(null)
   const repoRequest = useRef(0)
   const goStep = (n: 1 | 2 | 3) => {
     setStep(n)
@@ -246,20 +246,20 @@ export function SubmitPage({ mode }: { mode: Mode }) {
   )
 
   const saveDraft = async () => {
+    const id = createdPluginId ?? routePluginId ?? pluginId.trim()
     setBusy(true)
     try {
-      if (mode === "new" && !draftCreated) {
+      if (mode === "new" && createdPluginId === null) {
         await api.post("/api/dev/plugins", {
-          pluginId: pluginId.trim(),
+          pluginId: id,
           repositoryUrl: repoUrl,
           homepageUrl: homepage || null,
           docsUrl: docs || null,
         })
-        setDraftCreated(true)
+        setCreatedPluginId(id)
         toast("success", t.misc.draftSaved)
-        navigate(`/me/plugins/${encodeURIComponent(pluginId.trim())}`)
-      } else if (routePluginId || draftCreated) {
-        const id = routePluginId ?? pluginId.trim()
+        navigate(`/me/plugins/${encodeURIComponent(id)}`)
+      } else if (routePluginId || createdPluginId !== null) {
         await api.put(`/api/dev/plugins/${encodeURIComponent(id)}`, {
           repositoryUrl: repoUrl,
           homepageUrl: homepage || null,
@@ -277,10 +277,11 @@ export function SubmitPage({ mode }: { mode: Mode }) {
 
   const submit = async () => {
     if (busy) return // 防重复提交
-    if (!manifest?.description) {
+    if (manifest?.description === undefined) {
       toast("error", t.misc.manifestMissing)
       return
     }
+    const id = mode === "new" ? (createdPluginId ?? pluginId.trim()) : (routePluginId ?? "")
     setBusy(true)
     setDiffs([])
     try {
@@ -313,23 +314,23 @@ export function SubmitPage({ mode }: { mode: Mode }) {
       }
       if (mode === "new") {
         // 创建成功后保留状态，后续提交失败可在本页直接修正并重试。
-        if (!draftCreated) {
+        if (createdPluginId === null) {
           await api.post("/api/dev/plugins", {
-            pluginId: pluginId.trim(),
+            pluginId: id,
             repositoryUrl: repoUrl,
             homepageUrl: homepage || null,
             docsUrl: docs || null,
           })
-          setDraftCreated(true)
+          setCreatedPluginId(id)
         }
-        await api.post(`/api/dev/plugins/${encodeURIComponent(pluginId.trim())}/submit`, body)
+        await api.post(`/api/dev/plugins/${encodeURIComponent(id)}/submit`, body)
       } else if (mode === "newVersion" && routePluginId) {
         await api.post(`/api/dev/plugins/${encodeURIComponent(routePluginId)}/versions`, body)
       } else if (routePluginId) {
         await api.post(`/api/dev/plugins/${encodeURIComponent(routePluginId)}/submit`, body)
       }
       toast("success", t.misc.submitted)
-      navigate(`/me/plugins/${encodeURIComponent(mode === "new" ? pluginId.trim() : (routePluginId ?? ""))}`)
+      navigate(`/me/plugins/${encodeURIComponent(id)}`)
     } catch (e) {
       if (e instanceof ApiError) {
         const ds = e.differences
@@ -556,7 +557,8 @@ export function SubmitPage({ mode }: { mode: Mode }) {
                 <FormField label={t.submit.verify.id}>
                   {mode === "new" || mode === "official" ? (
                     <Input
-                      value={pluginId}
+                      value={createdPluginId ?? pluginId}
+                      disabled={busy || createdPluginId !== null}
                       placeholder={t.submit.pluginIdPlaceholder}
                       onChange={(e) => setPluginId(e.target.value)}
                       aria-invalid={idMismatch || undefined}
