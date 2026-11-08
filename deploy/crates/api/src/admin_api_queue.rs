@@ -164,6 +164,13 @@ async fn approve(
         .and_then(|Json(b)| b.note)
         .filter(|s| !s.trim().is_empty());
     let mut tx = state.pool().begin().await.map_err(anyhow::Error::from)?;
+    let plugin_row_id: i64 = sqlx::query_scalar("SELECT plugin_id FROM submissions WHERE id=$1")
+        .bind(submission_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(anyhow::Error::from)?
+        .ok_or_else(|| AppError::NotFound("申请不存在".into()))?;
+    ensure_publish_repository(&mut tx, plugin_row_id).await?;
 
     #[derive(sqlx::FromRow)]
     struct SRow {
@@ -231,29 +238,6 @@ async fn approve(
     )
     .await?;
 
-    // 同一开发者已发布插件必须同仓库（宿主源契约）
-    let other_repo: Option<(String,)> = sqlx::query_as(
-        "SELECT DISTINCT p2.repository_url FROM plugins p2
-         WHERE p2.developer_id = $1 AND p2.status='published' AND p2.id <> $2 LIMIT 1",
-    )
-    .bind(s.developer_row_id)
-    .bind(s.plugin_row_id)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(anyhow::Error::from)?;
-    let this_repo: (String,) = sqlx::query_as("SELECT repository_url FROM plugins WHERE id=$1")
-        .bind(s.plugin_row_id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(anyhow::Error::from)?;
-    if let Some((other,)) = other_repo {
-        if other != this_repo.0 {
-            return Err(AppError::Conflict(format!(
-                "该开发者已有使用仓库 {other} 的已发布插件，宿主目录源要求同一开发者全部已发布插件同仓库，无法发布"
-            )));
-        }
-    }
-
     let action = if s.plugin_status == "published" || s.is_new_version {
         "version_published"
     } else {
@@ -316,7 +300,9 @@ async fn approve(
         Some(&event_id),
     )
     .await;
-    Ok(Json(json!({ "ok": true, "status": "published", "eventId": event_id })))
+    Ok(Json(
+        json!({ "ok": true, "status": "published", "eventId": event_id }),
+    ))
 }
 
 async fn load_entry_for_submission(
@@ -365,7 +351,9 @@ async fn load_entry_for_submission(
         description,
         network: crate::plugin_security::network(&manifest).map_err(AppError::Conflict)?,
     };
-    entry.validate_package(&manifest, &known).map_err(AppError::Conflict)?;
+    entry
+        .validate_package(&manifest, &known)
+        .map_err(AppError::Conflict)?;
     Ok(entry)
 }
 
@@ -515,7 +503,9 @@ async fn reject(
         Some(&event_id),
     )
     .await;
-    Ok(Json(json!({ "ok": true, "status": "rejected", "eventId": event_id })))
+    Ok(Json(
+        json!({ "ok": true, "status": "rejected", "eventId": event_id }),
+    ))
 }
 
 // —— 插件管理 ——

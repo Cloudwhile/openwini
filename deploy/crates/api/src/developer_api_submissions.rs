@@ -912,10 +912,16 @@ async fn resume_plugin_dev(
 ) -> ApiResult<Json<Value>> {
     ensure_not_banned(&user)?;
     let p = load_own_plugin(&state, &user, &plugin_id, false).await?;
-    if p.status != "paused" {
+    let mut tx = state.pool().begin().await.map_err(anyhow::Error::from)?;
+    crate::admin_api::ensure_publish_repository(&mut tx, p.id).await?;
+    let status: String = sqlx::query_scalar("SELECT status FROM plugins WHERE id=$1")
+        .bind(p.id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(anyhow::Error::from)?;
+    if status != "paused" {
         return Err(AppError::Conflict("只有已暂停的插件才能恢复".into()));
     }
-    let mut tx = state.pool().begin().await.map_err(anyhow::Error::from)?;
     sqlx::query("UPDATE plugins SET status='published', updated_at=now() WHERE id=$1")
         .bind(p.id)
         .execute(&mut *tx)

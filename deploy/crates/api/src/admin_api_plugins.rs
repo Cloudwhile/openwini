@@ -1,4 +1,3 @@
-
 #[derive(Deserialize)]
 struct AdminPluginQuery {
     q: Option<String>,
@@ -75,6 +74,45 @@ async fn admin_plugins(
     Ok(Json(
         json!({ "items": items, "total": total.0, "page": page, "pageSize": page_size }),
     ))
+}
+
+/// Serialize publication for a developer, including their first published plugin.
+/// Every path entering `published` must acquire these locks before other row locks.
+pub(crate) async fn ensure_publish_repository(
+    tx: &mut PgConnection,
+    plugin_row_id: i64,
+) -> ApiResult<()> {
+    sqlx::query(
+        "SELECT id FROM developers WHERE id =
+         (SELECT developer_id FROM plugins WHERE id=$1) FOR UPDATE",
+    )
+    .bind(plugin_row_id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(anyhow::Error::from)?;
+    let (developer_id, repository): (i64, String) =
+        sqlx::query_as("SELECT developer_id, repository_url FROM plugins WHERE id=$1 FOR UPDATE")
+            .bind(plugin_row_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(anyhow::Error::from)?;
+    let other: Option<String> = sqlx::query_scalar(
+        "SELECT repository_url FROM plugins
+         WHERE developer_id=$1 AND status='published' AND id<>$2 AND repository_url<>$3
+         LIMIT 1",
+    )
+    .bind(developer_id)
+    .bind(plugin_row_id)
+    .bind(repository)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(anyhow::Error::from)?;
+    if let Some(other) = other {
+        return Err(AppError::Conflict(format!(
+            "该开发者已有使用仓库 {other} 的已发布插件，宿主目录源要求同一开发者全部已发布插件同仓库，无法发布"
+        )));
+    }
+    Ok(())
 }
 
 async fn load_plugin_mut(
@@ -206,7 +244,9 @@ async fn stop_plugin(
         Some(&event_id),
     )
     .await;
-    Ok(Json(json!({ "ok": true, "status": "stopped", "eventId": event_id })))
+    Ok(Json(
+        json!({ "ok": true, "status": "stopped", "eventId": event_id }),
+    ))
 }
 
 /// 退回已发布插件：published → rejected（移出索引，开发者修改后可重新提交）
@@ -298,7 +338,9 @@ async fn unpublish_plugin(
         Some(&event_id),
     )
     .await;
-    Ok(Json(json!({ "ok": true, "status": "rejected", "eventId": event_id })))
+    Ok(Json(
+        json!({ "ok": true, "status": "rejected", "eventId": event_id }),
+    ))
 }
 
 /// 停止更新（冻结更新链）：索引保留当前版本，新版本不再进入索引
@@ -354,7 +396,9 @@ async fn halt_updates(
         Some(&event_id),
     )
     .await;
-    Ok(Json(json!({ "ok": true, "updatesHalted": true, "eventId": event_id })))
+    Ok(Json(
+        json!({ "ok": true, "updatesHalted": true, "eventId": event_id }),
+    ))
 }
 
 /// 恢复：stopped → published（重新进入索引），或解除停止更新
@@ -370,6 +414,13 @@ async fn resume_plugin(
         .or(body.reason.clone())
         .unwrap_or_default();
     let mut tx = state.pool().begin().await.map_err(anyhow::Error::from)?;
+    let row_id: i64 = sqlx::query_scalar("SELECT id FROM plugins WHERE plugin_id=$1")
+        .bind(&plugin_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(anyhow::Error::from)?
+        .ok_or_else(|| AppError::NotFound("插件不存在".into()))?;
+    ensure_publish_repository(&mut tx, row_id).await?;
     let (row_id, plugin_id, status, dev_row, was_halted) =
         load_plugin_mut(&mut tx, &plugin_id).await?;
     if !crate::status::admin_can_resume(&status, was_halted) {
@@ -425,7 +476,9 @@ async fn resume_plugin(
         Some(&event_id),
     )
     .await;
-    Ok(Json(json!({ "ok": true, "status": "published", "eventId": event_id })))
+    Ok(Json(
+        json!({ "ok": true, "status": "published", "eventId": event_id }),
+    ))
 }
 
 async fn current_plugin_info(state: &AppState, row_id: i64) -> (String, String) {

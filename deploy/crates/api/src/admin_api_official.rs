@@ -46,11 +46,13 @@ async fn official_upsert(
     is_create: bool,
 ) -> ApiResult<()> {
     let token = admin.0.github_token()?;
-    let official_row: (i64,) = sqlx::query_as("SELECT id FROM developers WHERE developer_id=$1")
-        .bind(v::OFFICIAL_DEVELOPER_ID)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(anyhow::Error::from)?;
+    // 与审核发布/恢复共用开发者行锁，避免并发首发选到不同仓库。
+    let official_row: (i64,) =
+        sqlx::query_as("SELECT id FROM developers WHERE developer_id=$1 FOR UPDATE")
+            .bind(v::OFFICIAL_DEVELOPER_ID)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(anyhow::Error::from)?;
 
     let (plugin_row_id, plugin_id) = match existing_plugin_id {
         Some(pid) => {
