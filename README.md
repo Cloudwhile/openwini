@@ -117,23 +117,24 @@ npm run build --workspace apps/web   # 前端类型检查 + 生产构建
 
 基地址默认使用部署配置中的 `APP_BASE_URL`，管理员可在后台覆盖（`catalog_base_url`）。
 升级时会清除旧版占位地址，保留已配置的自定义地址。
-索引路径固定：
+v2 索引路径固定：
 
-- `GET /api/sources` → 顶层数组，源条目字段：`developerId`、`developerName`、`repositoryUrl`、
-  `pluginsUrl`（恒等于 `{base}/api/sources/{developerId}/plugins`）
-- `GET /api/sources/{developerId}/plugins` → 该开发者全部 published 插件，条目字段：
+- `GET /api/v2/sources` → 顶层数组，源条目字段：`developerId`、`developerName`、`repositoryUrl`、
+  `pluginsUrl`（恒等于 `{base}/api/v2/sources/{developerId}/plugins`）
+- `GET /api/v2/sources/{developerId}/plugins` → 该开发者全部 published 插件，条目字段：
   `id`、`name`、`version`、`developerId`、`repositoryUrl`、`downloadUrl`、`sha256`、
   `minHostVersion`、`contractVersion`、`permissions`、`description`，以及可选的 `network` 联网须知
 
 规则：公开只读、限流、带缓存头；响应体 UTF-8 JSON、顶层数组、单响应 ≤4 MiB；
-空数组合法；永远直接返回 200 + 最新 JSON（无 304、无 3xx）；`downloadUrl` 指向 GitHub
+空数组合法；成功时直接返回 200 + 最新 JSON（无 304、无 3xx）；`downloadUrl` 指向 GitHub
 Release 附件原地址（`https://github.com/{owner}/{repo}/releases/download/{tag}/{file}.zip`），
 不做平台中转。未审核、已停止内容绝不进入索引；`updates_halted` 只出现冻结版本。
 字段约束在入库与出索引时双重校验（严格 SemVer 无前导零、权限标签需在平台注册、
 SHA-256 小写 64 位十六进制等，详见 `crates/api/src/validation.rs` 及其单元测试）。
 
-**同一开发者的已发布插件必须来自同一个 GitHub 仓库**：宿主源契约要求插件条目的
-`repositoryUrl` 与所属源条目逐字一致，因此平台在提交与发布两个环节都会校验并阻断。
+**v2 支持同一开发者的插件分别来自不同 GitHub 仓库**。来源的 `repositoryUrl` 为该开发者已收录仓库按 URL 字符串升序排序后的首项，仅作代表性元数据，不限定插件仓库。每个条目的 `developerId` 必须与来源一致，条目自身的仓库地址须合法，下载附件须来自该条目自己的仓库，包内元数据须与条目匹配。
+
+旧版 v1 的 `/api/sources` 与 `/api/sources/{developerId}/plugins` 保留单仓库约束。遇到同一开发者多个仓库时，来源列表或该开发者索引整体返回非 200，不过滤后返回部分结果；旧客户端保留此前完整合法的缓存，但升级到支持 v2 的客户端前无法从该多仓库来源获取新的目录安装或更新。任何无效条目均使对应响应整体失败。目录 API v2 不改变插件 `contractVersion`。
 
 ## 核心流程
 

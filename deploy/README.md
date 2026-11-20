@@ -82,6 +82,8 @@ docker compose logs --tail=100 api-build web-build api
 
 权限标签可由开发者登记，实际能力由客户端决定；自定义标签不会增加系统权限。微信为独立官方插件 `wini_plugin_wechat`，仅默认源验证并声明 `desktop` 范围的安装可使用通用桌面代理，微信业务由插件实现，手动 ZIP 不会取得微信连接能力。默认插件源已开放，具体插件的收录状态以客户端 **插件管理 → 发现插件** 列表为准。
 
+目录 v2 使用 `/api/v2/sources` 与 `/api/v2/sources/{developerId}/plugins`，同一开发者可为不同插件使用不同 GitHub 仓库。来源的 `repositoryUrl` 是按 URL 字符串升序排序后的首个已收录仓库，仅作代表性元数据；每个插件的下载附件与包内声明均须匹配该插件自己的仓库。旧版 `/api/sources` 与 `/api/sources/{developerId}/plugins` 保留单仓库约束，多仓库来源使对应响应整体返回非 200；旧客户端保留完整合法的旧缓存，升级到支持 v2 后才能从该来源获取新的目录安装或更新。无效响应不提供部分成功结果。
+
 完整协议见[目录接口契约](https://wini-docs.abszero.cc/plugins/catalog)。
 
 ## 更新
