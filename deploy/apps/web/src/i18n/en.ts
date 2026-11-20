@@ -239,7 +239,7 @@ export const en: Lang = {
     releasePicker: "Choose a Release version",
     repoImmutable: "The repository of a published plugin cannot be changed",
     singleRepoNote:
-      "All published plugins of one developer must come from the same GitHub repository (host catalog source contract).",
+      "Each plugin uses its own public GitHub repository and Release attachments. You can use different repositories for different plugins.",
     verify: {
       title: "Validation result",
       id: "Plugin id",
@@ -463,7 +463,7 @@ export const en: Lang = {
         publicCatalog: "Enable public catalog",
         publicCatalogHelp: "When off, both the web catalog and the client index are disabled",
         catalogBase: "Catalog base URL (used by the host to pull the index)",
-        catalogBaseNote: "Changing it regenerates pluginsUrl; the index path is fixed at /api/sources/…",
+        catalogBaseNote: "Changing it regenerates pluginsUrl; the v2 index path is fixed at /api/v2/sources/…",
         saved: "Site settings saved",
       },
       smtp: {

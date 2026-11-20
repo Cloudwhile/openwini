@@ -24,10 +24,39 @@ pub(crate) struct SourceEntry {
     plugins_url: String,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum CatalogVersion {
+    V1,
+    V2,
+}
+
+impl CatalogVersion {
+    fn sources_path(self) -> &'static str {
+        match self {
+            Self::V1 => "/api/sources",
+            Self::V2 => "/api/v2/sources",
+        }
+    }
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/sources", get(list_sources))
-        .route("/sources/{developer_id}/plugins", get(source_plugins))
+        .route(
+            "/sources",
+            get(|state| list_sources(state, CatalogVersion::V1)),
+        )
+        .route(
+            "/sources/{developer_id}/plugins",
+            get(|state, path| source_plugins(state, path, CatalogVersion::V1)),
+        )
+        .route(
+            "/v2/sources",
+            get(|state| list_sources(state, CatalogVersion::V2)),
+        )
+        .route(
+            "/v2/sources/{developer_id}/plugins",
+            get(|state, path| source_plugins(state, path, CatalogVersion::V2)),
+        )
 }
 
 // A successful response is authoritative: never return a partial catalog.
@@ -87,9 +116,10 @@ async fn catalog_settings(state: &AppState) -> anyhow::Result<(bool, String)> {
 fn sources_response(
     rows: Vec<(String, String, Vec<String>)>,
     base: &str,
+    version: CatalogVersion,
 ) -> anyhow::Result<Response> {
     let mut sources = Vec::with_capacity(rows.len());
-    for (developer_id, developer_name, repositories) in rows {
+    for (developer_id, developer_name, mut repositories) in rows {
         ensure!(
             validation::valid_developer_id(&developer_id),
             "invalid source developerId"
@@ -98,13 +128,19 @@ fn sources_response(
             !developer_name.trim().is_empty() && developer_name.encode_utf16().count() <= 200,
             "invalid source developerName"
         );
-        ensure!(repositories.len() == 1, "source repositories disagree");
+        if version == CatalogVersion::V1 {
+            ensure!(repositories.len() == 1, "source repositories disagree");
+        }
+        for repository in &repositories {
+            validation::parse_repo_url(repository).map_err(anyhow::Error::msg)?;
+        }
+        repositories.sort();
         let repository_url = repositories
             .into_iter()
             .next()
             .context("missing source repository")?;
         validation::parse_repo_url(&repository_url).map_err(anyhow::Error::msg)?;
-        let plugins_url = format!("{base}/api/sources/{developer_id}/plugins");
+        let plugins_url = format!("{base}{}/{developer_id}/plugins", version.sources_path());
         let parsed = url::Url::parse(&plugins_url).context("invalid source pluginsUrl")?;
         ensure!(
             matches!(parsed.scheme(), "http" | "https")
@@ -126,7 +162,10 @@ fn sources_response(
 }
 
 /// GET /api/sources —— 全部拥有 published 插件的开发者源（顶层数组；空数组合法）
-async fn list_sources(State(state): State<AppState>) -> ApiResult<Response> {
+async fn list_sources(
+    State(state): State<AppState>,
+    version: CatalogVersion,
+) -> ApiResult<Response> {
     let (enabled, base) = catalog_settings(&state).await?;
     if !enabled {
         return Ok(json_response::<SourceEntry>(&[], MAX_SOURCES)?);
@@ -145,7 +184,7 @@ async fn list_sources(State(state): State<AppState>) -> ApiResult<Response> {
     .await
     .map_err(anyhow::Error::from)?;
 
-    Ok(sources_response(rows, &base)?)
+    Ok(sources_response(rows, &base, version)?)
 }
 
 /// GET /api/sources/{developerId}/plugins —— 该开发者全部 published 插件
@@ -153,6 +192,7 @@ async fn list_sources(State(state): State<AppState>) -> ApiResult<Response> {
 async fn source_plugins(
     State(state): State<AppState>,
     Path(developer_id): Path<String>,
+    version: CatalogVersion,
 ) -> ApiResult<Response> {
     let (enabled, _) = catalog_settings(&state).await?;
     if !enabled || !validation::valid_developer_id(&developer_id) {
@@ -214,21 +254,24 @@ async fn source_plugins(
             manifest,
         ));
     }
-    Ok(plugins_response(entries, &known)?)
+    Ok(plugins_response(entries, &known, version)?)
 }
 
 fn plugins_response(
     entries: Vec<(CatalogEntry, serde_json::Value)>,
     known: &HashSet<String>,
+    version: CatalogVersion,
 ) -> anyhow::Result<Response> {
     let repository = entries
         .first()
         .map(|(entry, _)| entry.repository_url.as_str());
     for (entry, manifest) in &entries {
-        ensure!(
-            Some(entry.repository_url.as_str()) == repository,
-            "source repositories disagree"
-        );
+        if version == CatalogVersion::V1 {
+            ensure!(
+                Some(entry.repository_url.as_str()) == repository,
+                "source repositories disagree"
+            );
+        }
         entry
             .validate_package(manifest, known)
             .map_err(anyhow::Error::msg)?;
@@ -281,7 +324,12 @@ mod tests {
 
     #[tokio::test]
     async fn complete_and_empty_catalogs_are_successful_json() {
-        let sources = sources_response(vec![source()], "https://catalog.example").unwrap();
+        let sources = sources_response(
+            vec![source()],
+            "https://catalog.example",
+            CatalogVersion::V1,
+        )
+        .unwrap();
         assert_eq!(sources.status(), StatusCode::OK);
         assert_eq!(
             sources.headers()[header::CACHE_CONTROL],
@@ -296,17 +344,19 @@ mod tests {
             }])
         );
         assert_eq!(
-            body(sources_response(vec![], "https://catalog.example").unwrap()).await,
+            body(sources_response(vec![], "https://catalog.example", CatalogVersion::V1).unwrap())
+                .await,
             json!([])
         );
         assert_eq!(
-            body(plugins_response(vec![], &known()).unwrap()).await,
+            body(plugins_response(vec![], &known(), CatalogVersion::V1).unwrap()).await,
             json!([])
         );
         let (entry, manifest) = package();
         let expected = serde_json::to_value(&entry).unwrap();
         assert_eq!(
-            body(plugins_response(vec![(entry, manifest)], &known()).unwrap()).await,
+            body(plugins_response(vec![(entry, manifest)], &known(), CatalogVersion::V1).unwrap())
+                .await,
             json!([expected])
         );
     }
@@ -333,14 +383,25 @@ mod tests {
             let result = response(sources_response(
                 vec![source(), invalid],
                 "https://catalog.example",
+                CatalogVersion::V1,
             ));
             assert_eq!(result.status(), StatusCode::INTERNAL_SERVER_ERROR);
             assert!(!result.headers().contains_key(header::CACHE_CONTROL));
         }
         let mut boundary = source();
         boundary.1 = "😀".repeat(100);
-        assert!(sources_response(vec![boundary], "https://catalog.example").is_ok());
-        assert!(sources_response(vec![source()], "https://catalog.example/?query=bad").is_err());
+        assert!(sources_response(
+            vec![boundary],
+            "https://catalog.example",
+            CatalogVersion::V1
+        )
+        .is_ok());
+        assert!(sources_response(
+            vec![source()],
+            "https://catalog.example/?query=bad",
+            CatalogVersion::V1
+        )
+        .is_err());
     }
 
     #[test]
@@ -348,33 +409,40 @@ mod tests {
         let mut invalid = package();
         invalid.0.sha256 = "bad".into();
         assert_eq!(
-            response(plugins_response(vec![package(), invalid], &known())).status(),
+            response(plugins_response(
+                vec![package(), invalid],
+                &known(),
+                CatalogVersion::V1
+            ))
+            .status(),
             StatusCode::INTERNAL_SERVER_ERROR
         );
         let mut other = package();
         other.0.repository_url = "https://github.com/example/other".into();
-        assert!(plugins_response(vec![package(), other], &known()).is_err());
+        assert!(plugins_response(vec![package(), other], &known(), CatalogVersion::V1).is_err());
         let mut invalid = package();
         invalid.1["minimumHostVersion"] = json!("99.0.0");
-        assert!(plugins_response(vec![package(), invalid], &known()).is_err());
-        assert!(plugins_response(vec![package()], &HashSet::new()).is_err());
+        assert!(plugins_response(vec![package(), invalid], &known(), CatalogVersion::V1).is_err());
+        assert!(plugins_response(vec![package()], &HashSet::new(), CatalogVersion::V1).is_err());
         let mut invalid = package();
         invalid.1["permissions"] = json!(["network"]);
         invalid.1["network"] = json!({});
-        assert!(plugins_response(vec![package(), invalid], &known()).is_err());
+        assert!(plugins_response(vec![package(), invalid], &known(), CatalogVersion::V1).is_err());
     }
 
     #[test]
     fn both_endpoints_reject_excess_counts_without_truncation() {
         assert!(sources_response(
             (0..MAX_SOURCES).map(|_| source()).collect(),
-            "https://catalog.example"
+            "https://catalog.example",
+            CatalogVersion::V1
         )
         .is_ok());
         assert_eq!(
             response(sources_response(
                 (0..=MAX_SOURCES).map(|_| source()).collect(),
-                "https://catalog.example"
+                "https://catalog.example",
+                CatalogVersion::V1
             ))
             .status(),
             StatusCode::INTERNAL_SERVER_ERROR
@@ -383,7 +451,8 @@ mod tests {
             (0..validation::MAX_PLUGINS_PER_SOURCE)
                 .map(|_| package())
                 .collect(),
-            &known()
+            &known(),
+            CatalogVersion::V1
         )
         .is_ok());
         assert_eq!(
@@ -391,7 +460,8 @@ mod tests {
                 (0..=validation::MAX_PLUGINS_PER_SOURCE)
                     .map(|_| package())
                     .collect(),
-                &known()
+                &known(),
+                CatalogVersion::V1
             ))
             .status(),
             StatusCode::INTERNAL_SERVER_ERROR
@@ -404,7 +474,8 @@ mod tests {
         assert_eq!(
             response(sources_response(
                 (0..MAX_SOURCES).map(|_| source()).collect(),
-                &base
+                &base,
+                CatalogVersion::V1
             ))
             .status(),
             StatusCode::INTERNAL_SERVER_ERROR
@@ -418,7 +489,7 @@ mod tests {
             })
             .collect();
         assert_eq!(
-            response(plugins_response(packages, &known())).status(),
+            response(plugins_response(packages, &known(), CatalogVersion::V1)).status(),
             StatusCode::INTERNAL_SERVER_ERROR
         );
         // JSON array/string punctuation consumes four bytes; count bytes, not Unicode characters.
@@ -427,6 +498,128 @@ mod tests {
         let oversized = format!("{exact}x");
         assert!(json_response(&[oversized], 1).is_err());
     }
+    #[tokio::test]
+    async fn v2_accepts_independent_repositories_and_preserves_package_binding() {
+        let first = package();
+        let mut second = package();
+        let old_repository = second.0.repository_url.clone();
+        let repository = "https://github.com/another/independent";
+        second.0.id = "wini_plugin_second".into();
+        second.1["id"] = json!(second.0.id);
+        second.0.repository_url = repository.into();
+        second.0.download_url = second.0.download_url.replace(&old_repository, repository);
+        second.1["repositoryUrl"] = json!(repository);
+        assert_eq!(first.0.developer_id, second.0.developer_id);
+        let mut legacy_second = package();
+        legacy_second.0.id = second.0.id.clone();
+        legacy_second.1 = second.1.clone();
+        legacy_second.0.repository_url = second.0.repository_url.clone();
+        legacy_second.0.download_url = second.0.download_url.clone();
+        let rejected = response(plugins_response(
+            vec![package(), legacy_second],
+            &known(),
+            CatalogVersion::V1,
+        ));
+        assert_eq!(rejected.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(!rejected.headers().contains_key(header::CACHE_CONTROL));
+        let expected = json!([first.0, second.0]);
+        assert_eq!(
+            body(plugins_response(vec![first, second], &known(), CatalogVersion::V2).unwrap())
+                .await,
+            expected
+        );
+        let mut source = source();
+        source.2.push(repository.into());
+        let sources = body(
+            sources_response(
+                vec![source.clone()],
+                "https://catalog.example",
+                CatalogVersion::V2,
+            )
+            .unwrap(),
+        )
+        .await;
+        assert_eq!(sources[0]["repositoryUrl"], repository);
+        assert_eq!(
+            sources[0]["pluginsUrl"],
+            "https://catalog.example/api/v2/sources/demo/plugins"
+        );
+        source.2.reverse();
+        assert_eq!(
+            body(
+                sources_response(vec![source], "https://catalog.example", CatalogVersion::V2)
+                    .unwrap()
+            )
+            .await,
+            sources
+        );
+        for version in [CatalogVersion::V1, CatalogVersion::V2] {
+            let mut mismatched = package();
+            mismatched.0.repository_url = repository.into();
+            assert!(plugins_response(vec![package(), mismatched], &known(), version).is_err());
+            let mut mismatched = package();
+            mismatched.1["repositoryUrl"] = json!(repository);
+            assert!(plugins_response(vec![package(), mismatched], &known(), version).is_err());
+        }
+    }
+
+    #[test]
+    fn v2_keeps_limits_and_invalid_data_failures() {
+        for repositories in [
+            vec![],
+            vec![
+                "https://github.com/a/valid".into(),
+                "https://example.com/invalid".into(),
+            ],
+        ] {
+            let mut invalid = source();
+            invalid.2 = repositories;
+            assert_eq!(
+                response(sources_response(
+                    vec![source(), invalid],
+                    "https://catalog.example",
+                    CatalogVersion::V2
+                ))
+                .status(),
+                StatusCode::INTERNAL_SERVER_ERROR
+            );
+        }
+        let mut invalid = package();
+        invalid.0.sha256 = "invalid".into();
+        assert!(plugins_response(vec![package(), invalid], &known(), CatalogVersion::V2).is_err());
+        assert!(plugins_response(vec![package()], &HashSet::new(), CatalogVersion::V2).is_err());
+        assert!(sources_response(
+            (0..=MAX_SOURCES).map(|_| source()).collect(),
+            "https://catalog.example",
+            CatalogVersion::V2
+        )
+        .is_err());
+        assert!(plugins_response(
+            (0..=validation::MAX_PLUGINS_PER_SOURCE)
+                .map(|_| package())
+                .collect(),
+            &known(),
+            CatalogVersion::V2
+        )
+        .is_err());
+        let base = format!("https://catalog.example/{}", "x".repeat(9000));
+        assert!(sources_response(
+            (0..MAX_SOURCES).map(|_| source()).collect(),
+            &base,
+            CatalogVersion::V2
+        )
+        .is_err());
+        let packages = (0..600)
+            .map(|_| {
+                let (mut entry, mut manifest) = package();
+                entry.description = "x".repeat(8000);
+                manifest["description"] = json!(entry.description);
+                (entry, manifest)
+            })
+            .collect();
+        assert!(plugins_response(packages, &known(), CatalogVersion::V2).is_err());
+    }
+
     #[tokio::test]
     async fn database_failure_returns_uncached_error_on_both_routes() {
         use crate::config::Config;
@@ -453,8 +646,13 @@ mod tests {
             web_dist_dir: None,
         };
         let (mail_tx, _mail_rx) = tokio::sync::mpsc::unbounded_channel();
-        let app = router().with_state(AppState::new(pool, config, mail_tx));
-        for path in ["/sources", "/sources/demo/plugins"] {
+        let app = crate::routes::build_router(AppState::new(pool, config, mail_tx)).unwrap();
+        for path in [
+            "/api/sources",
+            "/api/sources/demo/plugins",
+            "/api/v2/sources",
+            "/api/v2/sources/demo/plugins",
+        ] {
             let result = app
                 .clone()
                 .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())

@@ -580,22 +580,6 @@ async fn do_submit(
 ) -> ApiResult<Json<Value>> {
     let token = user.github_token()?;
 
-    // 同一开发者的已发布插件必须使用同一仓库（宿主源契约：条目 repositoryUrl 与源条目逐字一致）
-    let other_repo: Option<(String,)> = sqlx::query_as(
-        "SELECT DISTINCT repository_url FROM plugins
-         WHERE developer_id = $1 AND status = 'published' AND repository_url <> $2 LIMIT 1",
-    )
-    .bind(user.dev.id)
-    .bind(repo)
-    .fetch_optional(state.pool())
-    .await
-    .map_err(anyhow::Error::from)?;
-    if let Some((other,)) = other_repo {
-        return Err(AppError::Conflict(format!(
-            "你的已发布插件使用仓库 {other}；同一开发者的全部已发布插件必须来自同一 GitHub 仓库（宿主目录源契约要求），请将本插件也放在该仓库"
-        )));
-    }
-
     let known = sub::known_permission_set(&state)
         .await
         .map_err(anyhow::Error::from)?;

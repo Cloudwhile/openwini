@@ -90,28 +90,11 @@ pub(crate) async fn ensure_publish_repository(
     .fetch_one(&mut *tx)
     .await
     .map_err(anyhow::Error::from)?;
-    let (developer_id, repository): (i64, String) =
-        sqlx::query_as("SELECT developer_id, repository_url FROM plugins WHERE id=$1 FOR UPDATE")
-            .bind(plugin_row_id)
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(anyhow::Error::from)?;
-    let other: Option<String> = sqlx::query_scalar(
-        "SELECT repository_url FROM plugins
-         WHERE developer_id=$1 AND status='published' AND id<>$2 AND repository_url<>$3
-         LIMIT 1",
-    )
-    .bind(developer_id)
-    .bind(plugin_row_id)
-    .bind(repository)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(anyhow::Error::from)?;
-    if let Some(other) = other {
-        return Err(AppError::Conflict(format!(
-            "该开发者已有使用仓库 {other} 的已发布插件，宿主目录源要求同一开发者全部已发布插件同仓库，无法发布"
-        )));
-    }
+    sqlx::query("SELECT id FROM plugins WHERE id=$1 FOR UPDATE")
+        .bind(plugin_row_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(anyhow::Error::from)?;
     Ok(())
 }
 

@@ -11,7 +11,7 @@ import { t } from "@/i18n"
 // ECharts 体积较大：懒加载为独立 chunk，仅在进入概览页时拉取
 const VisitChart = lazy(() => import("@/components/visit-chart").then((m) => ({ default: m.VisitChart })))
 
-/** 宿主 App 接口可用性：真实探测 GET /api/sources（200 即可达），停用态来自配置 */
+/** 宿主 App 接口可用性：真实探测 GET /api/v2/sources（200 即可达），停用态来自配置 */
 type HostState = "ok" | "disabled" | "down" | null
 
 function useHostApiStatus(enabled: boolean | undefined): HostState {
@@ -19,7 +19,7 @@ function useHostApiStatus(enabled: boolean | undefined): HostState {
   useEffect(() => {
     if (!enabled) return
     let alive = true
-    fetch("/api/sources")
+    fetch("/api/v2/sources")
       .then((r) => {
         if (alive) setReachable(r.ok)
       })
@@ -119,8 +119,8 @@ export function AdminDashboard() {
               </div>
             </div>
             <div className="text-muted-foreground space-y-1 font-mono text-xs">
-              <p>GET /api/sources</p>
-              <p>{"GET /api/sources/{developerId}/plugins"}</p>
+              <p>GET /api/v2/sources</p>
+              <p>{"GET /api/v2/sources/{developerId}/plugins"}</p>
             </div>
           </div>
         </section>

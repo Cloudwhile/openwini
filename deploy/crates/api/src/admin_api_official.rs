@@ -91,22 +91,6 @@ async fn official_upsert(
         }
     };
 
-    // 同一开发者的已发布插件必须同仓库（winiofficial 同样受源契约约束）
-    let other_repo: Option<(String,)> = sqlx::query_as(
-        "SELECT DISTINCT repository_url FROM plugins
-         WHERE developer_id=$1 AND status='published' AND repository_url <> $2 LIMIT 1",
-    )
-    .bind(official_row.0)
-    .bind(&body.repository_url)
-    .fetch_optional(&mut *tx)
-    .await
-    .map_err(anyhow::Error::from)?;
-    if let Some((other,)) = other_repo {
-        return Err(AppError::Conflict(format!(
-            "直发账号已有使用仓库 {other} 的已发布插件（源契约要求同开发者同仓库）"
-        )));
-    }
-
     let known = sub::known_permission_set(state)
         .await
         .map_err(anyhow::Error::from)?;

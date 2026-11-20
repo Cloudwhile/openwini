@@ -238,7 +238,7 @@ export const zh = {
     releasePicker: "选择 Release 版本",
     repoImmutable: "已发布插件的仓库地址不可修改",
     singleRepoNote:
-      "同一开发者名下的已发布插件必须来自同一个 GitHub 仓库（宿主目录源契约要求）。",
+      "每个插件使用自己的公开 GitHub 仓库和 Release 附件，不同插件可以使用不同仓库。",
     /** 第二步验证面板 */
     verify: {
       title: "校验结果",
@@ -455,7 +455,7 @@ export const zh = {
         publicCatalog: "开放公众目录浏览",
         publicCatalogHelp: "关闭后网页目录与客户端索引同步停摆",
         catalogBase: "目录对外基地址（宿主拉取目录的 base）",
-        catalogBaseNote: "改动后 pluginsUrl 按新基地址重新生成；索引路径固定为 /api/sources/…",
+        catalogBaseNote: "改动后 pluginsUrl 按新基地址重新生成；v2 索引路径固定为 /api/v2/sources/…",
         saved: "站点设置已保存",
       },
       smtp: {
